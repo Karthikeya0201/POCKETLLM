@@ -1,7 +1,14 @@
 package com.example.llama
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
+import android.content.Intent
+import android.speech.RecognizerIntent
 import android.util.Log
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -15,6 +22,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -34,7 +42,7 @@ fun ChatScreen(
     navController: NavHostController,
     viewModel: MainViewModel,
     clipboardManager: ClipboardManager,
-    requestPermissions: (Array<String>) -> Unit = {} // Add callback
+    requestPermissions: (Array<String>) -> Unit = {}
 ) {
     val scrollState = rememberLazyListState()
     val isGenerating by viewModel.isGenerating
@@ -53,6 +61,16 @@ fun ChatScreen(
             repeatMode = RepeatMode.Reverse
         )
     )
+
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.get(0)
+            spokenText?.let {
+                viewModel.message.value = it
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.messages.clear()
@@ -129,7 +147,7 @@ fun ChatScreen(
                 getChatMessages = { chatId ->
                     viewModel.chatHistories.find { it.id == chatId }?.messages ?: emptyList()
                 },
-                requestPermissions = requestPermissions, // Pass callback
+                requestPermissions = requestPermissions,
                 modifier = Modifier.fillMaxHeight()
             )
         }
@@ -234,6 +252,27 @@ fun ChatScreen(
                         .padding(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    IconButton(
+                        onClick = {
+                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                            intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak something...")
+                            try {
+                                launcher.launch(intent)
+                            } catch (e: ActivityNotFoundException) {
+                                Toast.makeText(context, "Speech recognition not supported", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        enabled = !isGenerating && !isLoadingChat
+                    ) {
+                        Icon(
+                            Icons.Filled.Mic,
+                            contentDescription = "Voice Input",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
                     OutlinedTextField(
                         value = viewModel.message.value,
                         onValueChange = { viewModel.message.value = it },
@@ -246,6 +285,7 @@ fun ChatScreen(
                         maxLines = 3,
                         enabled = !isGenerating && !isLoadingChat
                     )
+
                     if (isGenerating) {
                         IconButton(
                             onClick = { viewModel.pause() },
