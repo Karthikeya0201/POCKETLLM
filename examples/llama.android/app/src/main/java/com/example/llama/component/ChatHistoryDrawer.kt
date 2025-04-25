@@ -270,7 +270,7 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
     val bubblePadding = 15f
     val bubbleRadius = 15f
     val maxBubbleWidth = 350f
-    val lineHeight = textPaint.getFontSpacing() // Use actual font spacing
+    val lineHeight = textPaint.getFontSpacing()
 
     // Border settings
     val borderMargin = 40f
@@ -369,10 +369,11 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
 
     messages.forEachIndexed { index, message ->
         val timestamp = timeFormat.format(Date(System.currentTimeMillis() + index * 60000))
-        val parts = message.split(":", limit = 2)
-        val sender = if (parts.size > 1) parts[0].trim() else "Unknown"
-        val cleanMessage = if (parts.size > 1) parts[1].trim() else message
-        val isUserMessage = sender.toLowerCase() != "assistant" && sender.toLowerCase() != "lara"
+        // Alternate between user and AI based on index (even index = user, odd index = AI)
+        val isUserMessage = index % 2 == 0 // Assumes user messages are at even indices
+        val cleanMessage = message.trim()
+
+        Log.d("ChatHistoryDrawer", "Message $index: $message, isUserMessage: $isUserMessage")
 
         var lines = wrapText(cleanMessage, paint, maxBubbleWidth - 2 * bubblePadding)
         var lineIndex = 0
@@ -396,7 +397,7 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
                 paint.typeface = Typeface.SERIF
                 paint.style = Paint.Style.FILL
                 drawPageHeader(canvas)
-                yPosition = if (pageNumber == 1) borderMargin + 170f else borderMargin + 100f // Added margin for subsequent pages
+                yPosition = if (pageNumber == 1) borderMargin + 170f else borderMargin + 100f
                 continue
             }
 
@@ -404,6 +405,7 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
             val timestampWidth = if (lineIndex == 0) textPaint.measureText(timestamp) else 0f
             val maxContentWidth = maxOf(contentWidthLayout, timestampWidth)
             val bubbleWidth = maxContentWidth + 2 * bubblePadding
+            // User on the right, assistant on the left
             val left = if (isUserMessage) borderMargin + contentWidth - bubbleWidth - 20f else borderMargin + 20f
             val right = left + bubbleWidth
             val top = yPosition
@@ -412,14 +414,15 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
             paint.color = if (isUserMessage) Color.parseColor("#F1F8E9") else Color.parseColor("#E0F7FA")
             canvas.drawRoundRect(bubbleRect, bubbleRadius, bubbleRadius, paint)
             val tailPath = Path()
+            // Tail directions: right tail for user (right side), left tail for assistant (left side)
             if (isUserMessage) {
-                tailPath.moveTo(bubbleRect.left + bubbleRadius, bubbleRect.bottom - bubbleRadius)
-                tailPath.lineTo(bubbleRect.left - 10f, bubbleRect.bottom)
-                tailPath.lineTo(bubbleRect.left + bubbleRadius, bubbleRect.bottom)
-            } else {
                 tailPath.moveTo(bubbleRect.right - bubbleRadius, bubbleRect.bottom - bubbleRadius)
                 tailPath.lineTo(bubbleRect.right + 10f, bubbleRect.bottom)
                 tailPath.lineTo(bubbleRect.right - bubbleRadius, bubbleRect.bottom)
+            } else {
+                tailPath.moveTo(bubbleRect.left + bubbleRadius, bubbleRect.bottom - bubbleRadius)
+                tailPath.lineTo(bubbleRect.left - 10f, bubbleRect.bottom)
+                tailPath.lineTo(bubbleRect.left + bubbleRadius, bubbleRect.bottom)
             }
             tailPath.close()
             canvas.drawPath(tailPath, paint)
@@ -462,7 +465,6 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
                 Log.d("ChatHistoryDrawer", "PDF saved to Downloads: $fileName")
             }
 
-            // Mark the file as ready
             contentValues.clear()
             contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
             resolver.update(uri, contentValues, null, null)
