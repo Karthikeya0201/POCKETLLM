@@ -155,6 +155,17 @@ fun ChatScreen(
         Scaffold(
             topBar = {
                 CenterAlignedTopAppBar(
+                    navigationIcon = {
+                        // Move the Menu icon to the leftmost side
+                        IconButton(onClick = {
+                            scope.launch {
+                                Log.d("ChatScreen", "Opening drawer")
+                                drawerState.open()
+                            }
+                        }) {
+                            Icon(Icons.Filled.Menu, contentDescription = "Open Chat Drawer")
+                        }
+                    },
                     title = {
                         val currentChatTitle = viewModel.chatHistories.find { chat ->
                             chat.id == viewModel.currentChatId
@@ -169,20 +180,12 @@ fun ChatScreen(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant
                     ),
                     actions = {
-                        IconButton(onClick = {
-                            scope.launch {
-                                Log.d("ChatScreen", "Opening drawer")
-                                drawerState.open()
-                            }
-                        }) {
-                            Icon(Icons.Filled.History, "History")
+                        IconButton(onClick = { navController.navigate("settings") }) {
+                            Icon(Icons.Filled.Settings, contentDescription = "Settings")
                         }
-                    IconButton(onClick = { navController.navigate("settings") }) {
-                        Icon(Icons.Filled.Settings, "Settings")
-                    }
-                    IconButton(onClick = { navController.navigate("talkWithAI") }) {
-                        Icon(Icons.Filled.Mic, "Talk with AI")
-                    }
+                        IconButton(onClick = { navController.navigate("talkWithAI") }) {
+                            Icon(Icons.Filled.Mic, contentDescription = "Talk with AI")
+                        }
                     }
                 )
             }

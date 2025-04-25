@@ -39,15 +39,31 @@ class MainActivity : ComponentActivity() {
     private val storagePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        Log.d("MainActivity", "Permission request result: $permissions")
+        Log.d("MainActivity", "Storage permission request result: $permissions")
         if (permissions.all { it.value }) {
             viewModel.log("Storage permissions granted")
-            Log.d("MainActivity", "Permissions granted: $permissions")
+            Log.d("MainActivity", "Storage permissions granted: $permissions")
         } else {
             viewModel.log("Storage permissions denied")
-            Log.w("MainActivity", "Permissions denied: $permissions")
+            Log.w("MainActivity", "Storage permissions denied: $permissions")
             if (!shouldShowRequestPermissionRationale(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
-                Log.d("MainActivity", "Legacy permissions permanently denied, directing to settings")
+                Log.d("MainActivity", "Legacy storage permissions permanently denied, directing to settings")
+                openAppSettings()
+            }
+        }
+    }
+
+    private val audioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        Log.d("MainActivity", "Audio permission request result: isGranted=$isGranted")
+        if (isGranted) {
+            viewModel.log("RECORD_AUDIO permission granted")
+        } else {
+            viewModel.log("RECORD_AUDIO permission denied")
+            Log.w("MainActivity", "RECORD_AUDIO permission denied")
+            if (!shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) {
+                Log.d("MainActivity", "RECORD_AUDIO permission permanently denied, directing to settings")
                 openAppSettings()
             }
         }
@@ -90,11 +106,19 @@ class MainActivity : ComponentActivity() {
             }
 
             if (permissionsToRequest.isNotEmpty()) {
-                Log.d("MainActivity", "Requesting legacy permissions: $permissionsToRequest")
+                Log.d("MainActivity", "Requesting legacy storage permissions: $permissionsToRequest")
                 storagePermissionLauncher.launch(permissionsToRequest.toTypedArray())
             } else {
-                Log.d("MainActivity", "All legacy permissions already granted")
+                Log.d("MainActivity", "All legacy storage permissions already granted")
             }
+        }
+
+        // Check and request RECORD_AUDIO permission
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Log.d("MainActivity", "Requesting RECORD_AUDIO permission")
+            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            Log.d("MainActivity", "RECORD_AUDIO permission already granted")
         }
     }
 
@@ -151,10 +175,16 @@ class MainActivity : ComponentActivity() {
                     prefs = prefs,
                     requestPermissions = { permissions ->
                         Log.d("MainActivity", "Requesting permissions via callback: $permissions")
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                            requestManageStorage()
-                        } else {
-                            storagePermissionLauncher.launch(permissions)
+                        if (permissions.contains(Manifest.permission.RECORD_AUDIO)) {
+                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                        if (permissions.contains(Manifest.permission.WRITE_EXTERNAL_STORAGE) ||
+                            permissions.contains(Manifest.permission.READ_EXTERNAL_STORAGE)) {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                                requestManageStorage()
+                            } else {
+                                storagePermissionLauncher.launch(permissions)
+                            }
                         }
                     }
                 )
@@ -177,7 +207,6 @@ class MainViewModelFactory(private val context: Context) : ViewModelProvider.Fac
     }
 }
 
-
 @Composable
 fun AppNavigation(
     viewModel: MainViewModel,
@@ -186,7 +215,7 @@ fun AppNavigation(
     models: List<Downloadable>,
     isFirstLaunch: Boolean,
     prefs: android.content.SharedPreferences,
-    requestPermissions: (Array<String>) -> Unit = {}
+    requestPermissions: (Array<String>) -> Unit
 ) {
     val navController = rememberNavController()
     NavHost(
@@ -218,6 +247,13 @@ fun AppNavigation(
                 downloadManager = downloadManager,
                 modelOptions = models,
                 prefs = prefs
+            )
+        }
+        composable("talkWithAI") {
+            TalkWithAIScreen(
+                navController = navController,
+                viewModel = viewModel,
+                requestPermissions = requestPermissions
             )
         }
     }
