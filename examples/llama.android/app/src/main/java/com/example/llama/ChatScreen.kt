@@ -159,9 +159,12 @@ fun ChatScreen(
                         }) {
                             Icon(Icons.Filled.History, "History")
                         }
-                        IconButton(onClick = { navController.navigate("settings") }) {
-                            Icon(Icons.Filled.Settings, "Settings")
-                        }
+                    IconButton(onClick = { navController.navigate("settings") }) {
+                        Icon(Icons.Filled.Settings, "Settings")
+                    }
+                    IconButton(onClick = { navController.navigate("talkWithAI") }) {
+                        Icon(Icons.Filled.Mic, "Talk with AI")
+                    }
                     }
                 )
             }
@@ -205,9 +208,9 @@ fun ChatScreen(
                         items(viewModel.messages) { message ->
                             val isUserMessage = message.startsWith("${viewModel.userName.value}:")
                             val displayText = if (isUserMessage) {
-                                message.removePrefix("${viewModel.userName.value}:")
+                                message.removePrefix("${viewModel.userName.value}:").trimStart()
                             } else {
-                                message.removePrefix("${viewModel.assistantName.value}:")
+                                message.removePrefix("${viewModel.assistantName.value}:").trimStart()
                             }
                             val isLoading = !isUserMessage && message.endsWith(": ") && isGenerating
                             Box(
