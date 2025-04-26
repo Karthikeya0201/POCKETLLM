@@ -10,30 +10,37 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.util.Log
+import androidx.compose.material3.Text
+
 
 @Composable
 fun MessageBubble(
     text: String,
     isUser: Boolean,
     modifier: Modifier = Modifier,
-    isLoading: Boolean = false,
-    dotOffset: Float = 0f
+    isLoading: Boolean = false
 ) {
-    val bubbleColor = if (isUser) MaterialTheme.colorScheme.primaryContainer else Color(0xFFE3F2FD) // Light blue for AI messages
-    val textColor = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+    val bubbleColor = if (isUser)
+        MaterialTheme.colorScheme.primaryContainer
+    else
+        MaterialTheme.colorScheme.secondaryContainer
+
+    val textColor = if (isUser)
+        MaterialTheme.colorScheme.onPrimaryContainer
+    else
+        MaterialTheme.colorScheme.onSecondaryContainer
+
     val dotAnimatable = remember { Animatable(0f) }
 
     LaunchedEffect(isLoading) {
@@ -50,25 +57,24 @@ fun MessageBubble(
                     repeatMode = RepeatMode.Restart
                 )
             )
+        } else {
+            dotAnimatable.snapTo(0f)
         }
     }
 
-    // Separate Box for content and tail to ensure proper layering
     Box(modifier = modifier) {
-        // Main bubble content
         Box(
             modifier = Modifier
-                .background(bubbleColor, RoundedCornerShape(12.dp))
-                .padding(12.dp)
+                .background(bubbleColor, RoundedCornerShape(16.dp))
+                .padding(14.dp)
                 .align(Alignment.Center)
         ) {
             if (isLoading) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     for (i in 0..2) {
-                        val delay = i * 200
-                        val alpha = when {
-                            dotAnimatable.value + (delay / 1200f) % 1f < 0.33f -> 0.3f
-                            dotAnimatable.value + (delay / 1200f) % 1f < 0.66f -> 1f
+                        val alpha = when ((dotAnimatable.value + (i * 0.33f)) % 1f) {
+                            in 0f..0.33f -> 0.3f
+                            in 0.33f..0.66f -> 1f
                             else -> 0.3f
                         }
                         Box(
@@ -86,12 +92,14 @@ fun MessageBubble(
                 Text(
                     text = text,
                     color = textColor,
-                    fontSize = 14.sp
+                    fontSize = 16.sp,
+                    fontFamily = FontFamily.SansSerif,
+                    fontWeight = FontWeight.Normal
                 )
             }
         }
 
-        // Tail Canvas - properly attached to bubble edge
+        // Tail Canvas - positioned relative to bubble edge
         Canvas(
             modifier = Modifier
                 .align(if (isUser) Alignment.BottomEnd else Alignment.BottomStart)
@@ -101,13 +109,13 @@ fun MessageBubble(
             val tailWidth = 16.dp.toPx()
             val path = Path().apply {
                 if (isUser) {
-                    moveTo(0f, 0f) // Start at bubble edge
-                    lineTo(tailWidth, -tailHeight/2) // Point outward
-                    lineTo(0f, -tailHeight) // Complete triangle
+                    moveTo(0f, 0f)
+                    lineTo(tailWidth, -tailHeight / 2)
+                    lineTo(0f, -tailHeight)
                 } else {
-                    moveTo(0f, 0f) // Start at bubble edge
-                    lineTo(-tailWidth, -tailHeight/2) // Point outward
-                    lineTo(0f, -tailHeight) // Complete triangle
+                    moveTo(0f, 0f)
+                    lineTo(-tailWidth, -tailHeight / 2)
+                    lineTo(0f, -tailHeight)
                 }
                 close()
             }

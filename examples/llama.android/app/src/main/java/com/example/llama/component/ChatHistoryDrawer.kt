@@ -1,9 +1,7 @@
 package com.example.llama.component
 
-import android.Manifest
 import android.content.ContentValues
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -21,36 +19,46 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import android.util.Log
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.Velocity
-import androidx.core.content.ContextCompat
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.navigation.NavHostController
 import com.caverock.androidsvg.SVG
+import com.example.llama.MainViewModel
 import com.example.llama.R
 import com.example.llama.model.ChatHistory
-import java.io.File
-import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatHistoryDrawer(
+    navController: NavHostController,
+    viewModel: MainViewModel,
     histories: List<ChatHistory>,
     onHistorySelected: (String) -> Unit,
     onNewChat: () -> Unit,
@@ -59,12 +67,14 @@ fun ChatHistoryDrawer(
     requestPermissions: (Array<String>) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var isActionMode by remember { mutableStateOf(false) }
-    var selectedAction by remember { mutableStateOf<String?>(null) }
-    val selectedChats = remember { mutableStateListOf<String>() }
-    val context = LocalContext.current
-    var showPermissionDialog by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
     var showMenu by remember { mutableStateOf(false) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedChats by remember { mutableStateOf(setOf<String>()) }
+    var selectedAction by remember { mutableStateOf<String?>(null) } // Track "download" or "delete"
+    var showPermissionDialog by remember { mutableStateOf(false) } // Moved permission dialog state here
+    val context = LocalContext.current
+    val density = LocalDensity.current
 
     Log.d("ChatHistoryDrawer", "Rendering drawer with ${histories.size} chat histories")
 
@@ -76,6 +86,7 @@ fun ChatHistoryDrawer(
         }
     }
 
+    // Permission Dialog
     if (showPermissionDialog) {
         AlertDialog(
             onDismissRequest = { showPermissionDialog = false },
@@ -99,70 +110,65 @@ fun ChatHistoryDrawer(
         )
     }
 
+    // Filter chats based on search query
+    val filteredHistories = histories.filter {
+        it.title.lowercase().contains(searchQuery.lowercase())
+    }
+
     Column(
         modifier = modifier
             .fillMaxHeight()
             .width(280.dp)
-            .background(MaterialTheme.colorScheme.surface)
+            .background(MaterialTheme.colorScheme.background)
             .padding(16.dp)
-            .nestedScroll(nestedScrollConnection)
     ) {
+        // Search Bar
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp),
+            placeholder = { Text("Search", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)) },
+            leadingIcon = {
+                Icon(
+                    Icons.Filled.Search,
+                    contentDescription = "Search Icon",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Text),
+            colors = TextFieldDefaults.outlinedTextFieldColors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                focusedTextColor = MaterialTheme.colorScheme.onBackground,
+                unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+            ),
+            shape = RoundedCornerShape(24.dp)
+        )
+
+        // Chats heading with 3-dot or tick
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Chat History",
-                style = MaterialTheme.typography.headlineSmall
+                text = "Chats",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.primary
             )
-            Row {
-                Box {
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(Icons.Filled.MoreVert, "Menu")
-                    }
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("New Chat") },
-                            onClick = {
-                                Log.d("ChatHistoryDrawer", "New chat selected")
-                                onNewChat()
-                                showMenu = false
-                                isActionMode = false
-                                selectedChats.clear()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Download Chats") },
-                            onClick = {
-                                Log.d("ChatHistoryDrawer", "Download chats selected")
-                                selectedAction = "download"
-                                isActionMode = true
-                                showMenu = false
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Delete Chats") },
-                            onClick = {
-                                Log.d("ChatHistoryDrawer", "Delete chats selected")
-                                selectedAction = "delete"
-                                isActionMode = true
-                                showMenu = false
-                            }
-                        )
-                    }
-                }
-                if (isActionMode) {
+            Box {
+                if (selectionMode) {
                     IconButton(onClick = {
+                        // Perform actions based on selected chats
                         when (selectedAction) {
                             "delete" -> {
                                 if (selectedChats.isNotEmpty()) {
                                     Log.d("ChatHistoryDrawer", "Deleting selected chats: $selectedChats")
                                     selectedChats.forEach { chatId -> onDeleteChat(chatId) }
-                                    selectedChats.clear()
                                 }
                             }
                             "download" -> {
@@ -170,91 +176,180 @@ fun ChatHistoryDrawer(
                                     Log.d("ChatHistoryDrawer", "Downloading selected chats: $selectedChats")
                                     selectedChats.forEach { chatId ->
                                         val messages = getChatMessages(chatId)
-                                        generateChatPdf(context, chatId, messages)
+                                        generateChatPdf(context, chatId, messages) { showPermissionDialog = true }
                                     }
-                                    selectedChats.clear()
                                 }
                             }
                         }
-                        isActionMode = false
+                        // Exit selection mode
+                        selectionMode = false
+                        selectedChats = emptySet()
                         selectedAction = null
                     }) {
-                        Icon(Icons.Filled.Check, "Confirm Action", tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Filled.Check, contentDescription = "Confirm Action", tint = MaterialTheme.colorScheme.primary)
+                    }
+                } else {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "Menu")
+                    }
+                }
+                // Dropdown Menu positioned below the 3-dot icon
+                if (showMenu) {
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false },
+                        offset = DpOffset(x = (-16).dp, y = 4.dp) // Align below the icon
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Download Chats") },
+                            onClick = {
+                                Log.d("ChatHistoryDrawer", "Download chats selected")
+                                selectedAction = "download"
+                                selectionMode = true
+                                showMenu = false
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Download, contentDescription = "Download")
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete Chats") },
+                            onClick = {
+                                Log.d("ChatHistoryDrawer", "Delete chats selected")
+                                selectedAction = "delete"
+                                selectionMode = true
+                                showMenu = false
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                            }
+                        )
                     }
                 }
             }
         }
 
-        Divider(modifier = Modifier.padding(vertical = 12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
+        // Chat list with checkboxes in selection mode
         LazyColumn(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (histories.isEmpty()) {
+            if (filteredHistories.isEmpty()) {
                 item {
                     Log.d("ChatHistoryDrawer", "No chat histories to display")
                     Text(
-                        text = "No chat history yet",
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        color = ComposeColor.Gray,
+                        text = if (searchQuery.isEmpty()) "No chat history yet" else "No chats found",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
             } else {
-                items(histories) { history ->
-                    val dateFormat = SimpleDateFormat("MMM dd, hh:mm a", Locale.getDefault())
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
+                items(filteredHistories) { history ->
+                    val isChecked = selectedChats.contains(history.id)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (isChecked) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                else ComposeColor.Transparent,
+                                RoundedCornerShape(12.dp)
+                            )
+                            .clickable {
+                                if (selectionMode) {
+                                    selectedChats = if (isChecked)
+                                        selectedChats - history.id
+                                    else
+                                        selectedChats + history.id
+                                } else {
+                                    onHistorySelected(history.id)
+                                }
+                            }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        if (selectionMode) {
+                            Checkbox(
+                                checked = isChecked,
+                                onCheckedChange = { checked ->
+                                    selectedChats = if (checked)
+                                        selectedChats + history.id
+                                    else
+                                        selectedChats - history.id
+                                }
+                            )
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f)
                         ) {
-                            if (isActionMode) {
-                                Checkbox(
-                                    checked = selectedChats.contains(history.id),
-                                    onCheckedChange = { isChecked ->
-                                        if (isChecked) {
-                                            selectedChats.add(history.id)
-                                            Log.d("ChatHistoryDrawer", "Selected chat: ${history.id}")
-                                        } else {
-                                            selectedChats.remove(history.id)
-                                            Log.d("ChatHistoryDrawer", "Deselected chat: ${history.id}")
-                                        }
-                                    },
-                                    modifier = Modifier.padding(end = 8.dp)
-                                )
-                            }
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable(enabled = !isActionMode) {
-                                        if (!isActionMode) {
-                                            Log.d("ChatHistoryDrawer", "Selected chat: ${history.id}")
-                                            onHistorySelected(history.id)
-                                        }
-                                    }
-                            ) {
-                                Text(text = history.title, style = MaterialTheme.typography.titleMedium)
-                                Text(
-                                    text = dateFormat.format(history.date),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = ComposeColor.Gray
-                                )
-                            }
+                            Text(
+                                text = history.title,
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = SimpleDateFormat("MMM dd, hh:mm a", Locale.getDefault()).format(history.date),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
             }
         }
+
+        // Profile Button with Consistent Border and Color Changes
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                .background(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                .clickable { navController.navigate("settings") }
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = CircleShape
+                    )
+            ) {
+                Text(
+                    text = viewModel.userName.value.firstOrNull()?.uppercase() ?: "U",
+                    modifier = Modifier.align(Alignment.Center),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontSize = 20.sp
+                )
+            }
+            Text(
+                text = viewModel.userName.value,
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }
 
-fun generateChatPdf(context: android.content.Context, chatId: String, messages: List<String>) {
+fun generateChatPdf(context: android.content.Context, chatId: String, messages: List<String>, onPermissionDenied: () -> Unit) {
     val document = PdfDocument()
     var pageNumber = 1
     val pageInfo = PdfDocument.PageInfo.Builder(595, 842, pageNumber).create()
@@ -262,7 +357,7 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
     var canvas = page.canvas
     val paint = Paint()
     val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = 8f // Reduced font size
+        textSize = 8f
         typeface = Typeface.SERIF
         color = Color.BLACK
     }
@@ -281,7 +376,7 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
     // Header settings
     val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
     val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-    var yPosition = borderMargin + 170f // Below header for page 1
+    var yPosition = borderMargin + 170f
 
     fun drawPageHeader(canvas: Canvas) {
         if (pageNumber == 1) {
@@ -369,8 +464,7 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
 
     messages.forEachIndexed { index, message ->
         val timestamp = timeFormat.format(Date(System.currentTimeMillis() + index * 60000))
-        // Alternate between user and AI based on index (even index = user, odd index = AI)
-        val isUserMessage = index % 2 == 0 // Assumes user messages are at even indices
+        val isUserMessage = index % 2 == 0
         val cleanMessage = message.trim()
 
         Log.d("ChatHistoryDrawer", "Message $index: $message, isUserMessage: $isUserMessage")
@@ -405,7 +499,6 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
             val timestampWidth = if (lineIndex == 0) textPaint.measureText(timestamp) else 0f
             val maxContentWidth = maxOf(contentWidthLayout, timestampWidth)
             val bubbleWidth = maxContentWidth + 2 * bubblePadding
-            // User on the right, assistant on the left
             val left = if (isUserMessage) borderMargin + contentWidth - bubbleWidth - 20f else borderMargin + 20f
             val right = left + bubbleWidth
             val top = yPosition
@@ -414,7 +507,6 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
             paint.color = if (isUserMessage) Color.parseColor("#F1F8E9") else Color.parseColor("#E0F7FA")
             canvas.drawRoundRect(bubbleRect, bubbleRadius, bubbleRadius, paint)
             val tailPath = Path()
-            // Tail directions: right tail for user (right side), left tail for assistant (left side)
             if (isUserMessage) {
                 tailPath.moveTo(bubbleRect.right - bubbleRadius, bubbleRect.bottom - bubbleRadius)
                 tailPath.lineTo(bubbleRect.right + 10f, bubbleRect.bottom)
@@ -444,7 +536,6 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
     drawPageNumber(canvas, pageNumber)
     document.finishPage(page)
 
-    // Save to Downloads using MediaStore
     val fileName = "Chat_$chatId.pdf"
     val contentValues = ContentValues().apply {
         put(MediaStore.Downloads.DISPLAY_NAME, fileName)
@@ -464,7 +555,6 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
                 outputStream.flush()
                 Log.d("ChatHistoryDrawer", "PDF saved to Downloads: $fileName")
             }
-
             contentValues.clear()
             contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
             resolver.update(uri, contentValues, null, null)
@@ -475,6 +565,7 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
         }
     } ?: run {
         Log.e("ChatHistoryDrawer", "Failed to create file URI")
+        onPermissionDenied()
         document.close()
     }
 }

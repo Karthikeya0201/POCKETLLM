@@ -87,7 +87,17 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
 
         val chatId = currentChatId ?: UUID.randomUUID().toString() // Use existing ID or create new
-        val title = messages.first().take(30)
+
+        // Trim user name from the first message for the title
+        val userPrefix = "${userName.value}: "
+        val firstMsg = messages.first()
+        val trimmedTitle = if (firstMsg.startsWith(userPrefix)) {
+            firstMsg.removePrefix(userPrefix).trimStart()
+        } else {
+            firstMsg
+        }
+        val title = trimmedTitle.take(30)
+
         val chatHistory = ChatHistory(
             id = chatId,
             title = title,
@@ -190,9 +200,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 llama.load(modelPath.value)
                 Log.d("MainViewModel", "Reloaded model: ${modelPath.value}")
             }
-            val welcomeMessage = "${assistantName.value}: Hello, ${userName.value}! I'm here to assist you. How can I help you today?"
-            messages.add(welcomeMessage)
-            Log.d("MainViewModel", "Added welcome message for new chat")
         }
         Log.d("MainViewModel", "New chat started, messages cleared")
     }

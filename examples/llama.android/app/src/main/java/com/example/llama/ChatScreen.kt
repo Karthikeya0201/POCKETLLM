@@ -1,5 +1,6 @@
 package com.example.llama
 
+import com.example.llama.component.MessageBubble
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
@@ -18,23 +19,30 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.ChatBubble
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.example.llama.component.ChatHistoryDrawer
-import com.example.llama.component.MessageBubble
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.foundation.Image
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,10 +82,8 @@ fun ChatScreen(
 
     LaunchedEffect(Unit) {
         viewModel.messages.clear()
-        val welcomeMessage = "${viewModel.assistantName.value}: Hello, ${viewModel.userName.value}! I'm here to assist you. How can I help you today?"
-        viewModel.messages.add(welcomeMessage)
         viewModel.currentChatId = null
-        Log.d("ChatScreen", "Started fresh chat with welcome message: $welcomeMessage")
+        Log.d("ChatScreen", "Started fresh chat with no welcome message")
     }
 
     LaunchedEffect(viewModel.isGenerating.value, viewModel.messages.size) {
@@ -112,6 +118,8 @@ fun ChatScreen(
         drawerState = drawerState,
         drawerContent = {
             ChatHistoryDrawer(
+                navController = navController, // Pass navController
+                viewModel = viewModel, // Pass viewModel
                 histories = viewModel.chatHistories,
                 onHistorySelected = { chatId ->
                     scope.launch {
@@ -128,14 +136,11 @@ fun ChatScreen(
                 onNewChat = {
                     scope.launch {
                         Log.d("ChatScreen", "New chat requested")
-                        val welcomeMessage = "${viewModel.assistantName.value}: Hello, ${viewModel.userName.value}! I'm here to assist you. How can I help you today?"
-                        val isEffectivelyEmpty = viewModel.messages.isEmpty() ||
-                            (viewModel.messages.size == 1 && viewModel.messages.first() == welcomeMessage)
-                        if (!isEffectivelyEmpty) {
+                        if (viewModel.messages.isNotEmpty()) {
                             viewModel.startNewChat()
                             Log.d("ChatScreen", "New chat started, drawer closed")
                         } else {
-                            Log.d("ChatScreen", "Current chat is effectively empty, no new chat needed")
+                            Log.d("ChatScreen", "Current chat is empty, no new chat needed")
                         }
                         drawerState.close()
                     }
@@ -156,35 +161,44 @@ fun ChatScreen(
             topBar = {
                 CenterAlignedTopAppBar(
                     navigationIcon = {
-                        // Move the Menu icon to the leftmost side
                         IconButton(onClick = {
                             scope.launch {
                                 Log.d("ChatScreen", "Opening drawer")
                                 drawerState.open()
                             }
                         }) {
-                            Icon(Icons.Filled.Menu, contentDescription = "Open Chat Drawer")
+                            Icon(
+                                Icons.Filled.Menu,
+                                contentDescription = "Open Chat Drawer",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer // Set menu icon color
+                            )
                         }
                     },
                     title = {
-                        val currentChatTitle = viewModel.chatHistories.find { chat ->
-                            chat.id == viewModel.currentChatId
-                        }?.title ?: "Chat - $currentDate"
-                        Text(
-                            currentChatTitle,
-                            style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold),
-                            modifier = Modifier.padding(4.dp)
+                        Image(
+                            painter = painterResource(id = R.drawable.pocket_llm_icon),
+                            contentDescription = "Pocket LLM Logo",
+                            modifier = Modifier.height(40.dp).padding(vertical = 4.dp)
                         )
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        containerColor = Color.Transparent
                     ),
                     actions = {
-                        IconButton(onClick = { navController.navigate("settings") }) {
-                            Icon(Icons.Filled.Settings, contentDescription = "Settings")
-                        }
-                        IconButton(onClick = { navController.navigate("talkWithAI") }) {
-                            Icon(Icons.Filled.Mic, contentDescription = "Talk with AI")
+                        IconButton(onClick = {
+                            scope.launch {
+                                Log.d("ChatScreen", "New chat requested from message icon")
+                                if (viewModel.messages.isNotEmpty()) {
+                                    viewModel.startNewChat()
+                                }
+                                drawerState.close()
+                            }
+                        }) {
+                            Icon(
+                                Icons.Outlined.ChatBubble,
+                                contentDescription = "New Chat",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
                         }
                     }
                 )
@@ -213,8 +227,20 @@ fun ChatScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            "No messages yet. Start chatting!",
-                            style = TextStyle(fontSize = 16.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
+                            text = "Hello, ${viewModel.userName.value}",
+                            style = TextStyle(
+                                fontSize = 40.sp, // Larger size for greeting
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.SansSerif, // Use a rounded sans-serif font
+                                brush = Brush.linearGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.primary,
+                                        MaterialTheme.colorScheme.secondary
+                                    ),
+                                    tileMode = TileMode.Clamp
+                                ),
+                                textAlign = TextAlign.Center
+                            )
                         )
                     }
                 } else {
@@ -234,9 +260,10 @@ fun ChatScreen(
                                 message.removePrefix("${viewModel.assistantName.value}:").trimStart()
                             }
                             val isLoading = !isUserMessage && message.endsWith(": ") && isGenerating
-                            Box(
-                                modifier = Modifier.fillMaxWidth(),
-                                contentAlignment = if (isUserMessage) Alignment.CenterEnd else Alignment.CenterStart
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth(),
+                                horizontalArrangement = if (isUserMessage) Arrangement.End else Arrangement.Start
                             ) {
                                 MessageBubble(
                                     text = if (isLoading) "..." else displayText,
@@ -244,8 +271,7 @@ fun ChatScreen(
                                     modifier = Modifier
                                         .widthIn(max = 300.dp)
                                         .padding(horizontal = 8.dp),
-                                    isLoading = isLoading,
-                                    dotOffset = if (isLoading) dotOffset else 0f
+                                    isLoading = isLoading
                                 )
                             }
                         }
@@ -255,9 +281,42 @@ fun ChatScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(8.dp),
+                        .background(
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                            RoundedCornerShape(24.dp)
+                        )
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    TextField(
+                        value = viewModel.message.value,
+                        onValueChange = { newValue -> viewModel.message.value = newValue },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        textStyle = TextStyle(
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onBackground
+                        ),
+                        placeholder = {
+                            Text(
+                                "Ask anything",
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                fontSize = 14.sp
+                            )
+                        },
+                        colors = TextFieldDefaults.colors(
+                            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                            disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                            focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                            unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                            disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
                     IconButton(
                         onClick = {
                             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
@@ -279,26 +338,10 @@ fun ChatScreen(
                         )
                     }
 
-                    OutlinedTextField(
-                        value = viewModel.message.value,
-                        onValueChange = { viewModel.message.value = it },
-                        label = { Text("Message", fontSize = 14.sp) },
-                        textStyle = TextStyle(fontSize = 14.sp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 8.dp),
-                        singleLine = false,
-                        maxLines = 3,
-                        enabled = !isGenerating && !isLoadingChat
-                    )
-
                     if (isGenerating) {
                         IconButton(
                             onClick = { viewModel.pause() },
-                            enabled = true,
-                            modifier = Modifier
-                                .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(8.dp))
-                                .padding(4.dp)
+                            enabled = true
                         ) {
                             Icon(
                                 Icons.Filled.Pause,
@@ -306,24 +349,30 @@ fun ChatScreen(
                                 tint = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
-                    } else {
+                    } else if (viewModel.message.value.isNotBlank()) {
                         IconButton(
                             onClick = {
-                                if (viewModel.message.value.isNotBlank()) {
-                                    Log.d("ChatScreen", "Sending message: ${viewModel.message.value}")
-                                    viewModel.send(viewModel.message.value)
-                                    viewModel.message.value = ""
-                                    focusManager.clearFocus()
-                                }
+                                Log.d("ChatScreen", "Sending message: ${viewModel.message.value}")
+                                viewModel.send(viewModel.message.value)
+                                viewModel.message.value = ""
+                                focusManager.clearFocus()
                             },
-                            enabled = !isGenerating && viewModel.message.value.isNotBlank() && !isLoadingChat,
-                            modifier = Modifier
-                                .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(8.dp))
-                                .padding(4.dp)
+                            enabled = !isGenerating && viewModel.message.value.isNotBlank() && !isLoadingChat
                         ) {
                             Icon(
-                                Icons.Filled.Send,
+                                Icons.Filled.ArrowUpward,
                                 contentDescription = "Send",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    } else {
+                        IconButton(
+                            onClick = { navController.navigate("talkWithAI") },
+                            enabled = !isGenerating && !isLoadingChat
+                        ) {
+                            Icon(
+                                Icons.Filled.GraphicEq,
+                                contentDescription = "Talk with AI",
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
