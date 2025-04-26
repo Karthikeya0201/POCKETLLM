@@ -26,7 +26,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
@@ -43,6 +42,9 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TileMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -118,8 +120,8 @@ fun ChatScreen(
         drawerState = drawerState,
         drawerContent = {
             ChatHistoryDrawer(
-                navController = navController, // Pass navController
-                viewModel = viewModel, // Pass viewModel
+                navController = navController,
+                viewModel = viewModel,
                 histories = viewModel.chatHistories,
                 onHistorySelected = { chatId ->
                     scope.launch {
@@ -170,16 +172,35 @@ fun ChatScreen(
                             Icon(
                                 Icons.Filled.Menu,
                                 contentDescription = "Open Chat Drawer",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer // Set menu icon color
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(30.dp) // Adjusted to 30.dp
                             )
                         }
                     },
                     title = {
-                        Image(
-                            painter = painterResource(id = R.drawable.pocket_llm_icon),
-                            contentDescription = "Pocket LLM Logo",
-                            modifier = Modifier.height(40.dp).padding(vertical = 4.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .background(
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .padding(4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.pocket_llm_icon),
+                                contentDescription = "Pocket LLM Logo",
+                                modifier = Modifier
+                                    .height(40.dp)
+                                    .padding(4.dp)
+                            )
+                        }
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                         containerColor = Color.Transparent
@@ -195,9 +216,10 @@ fun ChatScreen(
                             }
                         }) {
                             Icon(
-                                Icons.Outlined.ChatBubble,
+                                Icons.Filled.Chat,
                                 contentDescription = "New Chat",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(30.dp) // Adjusted to 30.dp
                             )
                         }
                     }
@@ -229,9 +251,9 @@ fun ChatScreen(
                         Text(
                             text = "Hello, ${viewModel.userName.value}",
                             style = TextStyle(
-                                fontSize = 40.sp, // Larger size for greeting
+                                fontSize = 40.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.SansSerif, // Use a rounded sans-serif font
+                                fontFamily = FontFamily.SansSerif,
                                 brush = Brush.linearGradient(
                                     colors = listOf(
                                         MaterialTheme.colorScheme.primary,
@@ -334,7 +356,8 @@ fun ChatScreen(
                         Icon(
                             Icons.Filled.Mic,
                             contentDescription = "Voice Input",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(30.dp) // Increased to 30.dp
                         )
                     }
 
@@ -346,7 +369,8 @@ fun ChatScreen(
                             Icon(
                                 Icons.Filled.Pause,
                                 contentDescription = "Pause",
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer, // Changed for consistency
+                                modifier = Modifier.size(30.dp)
                             )
                         }
                     } else if (viewModel.message.value.isNotBlank()) {
@@ -362,7 +386,8 @@ fun ChatScreen(
                             Icon(
                                 Icons.Filled.ArrowUpward,
                                 contentDescription = "Send",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(30.dp) // Increased to 30.dp
                             )
                         }
                     } else {
@@ -373,7 +398,8 @@ fun ChatScreen(
                             Icon(
                                 Icons.Filled.GraphicEq,
                                 contentDescription = "Talk with AI",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(30.dp) // Increased to 30.dp
                             )
                         }
                     }

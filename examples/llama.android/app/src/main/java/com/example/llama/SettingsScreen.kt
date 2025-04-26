@@ -67,7 +67,7 @@ fun SettingsScreen(
                 title = { 
                     Text(
                         "Settings", 
-                        color = MaterialTheme.colorScheme.primary // Violet (uses theme's primary color)
+                        color = MaterialTheme.colorScheme.primary
                     ) 
                 },
                 navigationIcon = {
@@ -75,10 +75,13 @@ fun SettingsScreen(
                         Icon(
                             Icons.Filled.ArrowBack, 
                             contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.primary // Violet (uses theme's primary color)
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                )
             )
         }
     ) { padding ->

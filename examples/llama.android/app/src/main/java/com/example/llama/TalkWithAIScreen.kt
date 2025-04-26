@@ -18,9 +18,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cancel
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -217,10 +215,10 @@ fun TalkWithAIScreen(
             start = Offset(0f, gradientOffset * 200f),
             end = Offset(200f, (1f - gradientOffset) * 200f)
         )
-        isThinking -> Brush.radialGradient(
+        isThinking -> Brush.linearGradient(
             colors = listOf(Color(0xFFFFF176), Color(0xFFFFA000)),
-            center = Offset(100f, 100f),
-            radius = 100f
+            start = Offset(0f, gradientOffset * 200f),
+            end = Offset(200f, (1f - gradientOffset) * 200f)
         )
         isSpeaking -> Brush.linearGradient(
             colors = listOf(Color(0xFF388E3C), Color(0xFF81C784)),
@@ -229,8 +227,8 @@ fun TalkWithAIScreen(
         )
         else -> Brush.linearGradient(
             colors = listOf(Color(0xFF757575), Color(0xFFBDBDBD)),
-            start = Offset(0f, 0f),
-            end = Offset(200f, 200f)
+            start = Offset(0f, gradientOffset * 200f),
+            end = Offset(200f, (1f - gradientOffset) * 200f)
         )
     }
 
@@ -251,7 +249,7 @@ fun TalkWithAIScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Talk with AI") },
+                title = { Text("Talk to Pocket LLM", color = MaterialTheme.colorScheme.primary) }, // Rephrased title
                 navigationIcon = {
                     IconButton(onClick = {
                         speechRecognizer?.stopListening()
@@ -261,9 +259,16 @@ fun TalkWithAIScreen(
                         isSpeaking = false
                         navController.popBackStack()
                     }) {
-                        Icon(Icons.Filled.Cancel, contentDescription = "Cancel")
+                        Icon(
+                            Icons.Filled.ArrowBack, // Use arrow symbol
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.primary // Match Settings/Chat header icon color
+                        )
                     }
-                }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) // Match Settings header bg
+                )
             )
         }
     ) { padding ->
@@ -277,19 +282,11 @@ fun TalkWithAIScreen(
         ) {
             Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .aspectRatio(1.2f)
-                    .scale(
-                        when {
-                            isListening -> pulseScale.value
-                            isThinking -> thinkingPulse
-                            else -> 1f
-                        }
-                    )
+                    .size(320.dp) // Increased from 280.dp to 320.dp for a larger circle
                     .clip(CircleShape)
                     .background(gradientBrush)
                     .clickable {
-                        if (!isListening) startListening(speechRecognizer)
+                        if (!isListening && !isThinking && !isSpeaking) startListening(speechRecognizer)
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -327,12 +324,42 @@ fun TalkWithAIScreen(
                     }
                 }
 
-                Icon(
-                    imageVector = if (isSpeaking) Icons.Filled.Pause else Icons.Filled.Mic,
-                    contentDescription = "Mic",
-                    tint = Color.White,
-                    modifier = Modifier.size(64.dp)
-                )
+                when {
+                    isListening -> {
+                        Icon(
+                            imageVector = Icons.Filled.Mic,
+                            contentDescription = "Mic",
+                            tint = Color.White,
+                            modifier = Modifier.size(64.dp)
+                        )
+                    }
+                    isSpeaking -> {
+                        IconButton(
+                            onClick = {
+                                textToSpeech?.stop()
+                                isSpeaking = false
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Pause,
+                                contentDescription = "Pause",
+                                tint = Color.White,
+                                modifier = Modifier.size(64.dp)
+                            )
+                        }
+                    }
+                    isThinking -> {
+                        // No icon when thinking
+                    }
+                    else -> {
+                        Icon(
+                            imageVector = Icons.Filled.TouchApp,
+                            contentDescription = "Tap to talk",
+                            tint = Color.White,
+                            modifier = Modifier.size(64.dp)
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
