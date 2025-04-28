@@ -137,6 +137,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        setTheme(R.style.Theme_LlamaAndroid)
         super.onCreate(savedInstanceState)
 
         checkAndRequestPermissions()

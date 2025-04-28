@@ -194,7 +194,7 @@ fun ChatScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Image(
-                                painter = painterResource(id = R.drawable.pocket_llm_icon),
+                                painter = painterResource(id = R.drawable.logo),
                                 contentDescription = "Pocket LLM Logo",
                                 modifier = Modifier
                                     .height(40.dp)
