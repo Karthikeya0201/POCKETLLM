@@ -12,15 +12,15 @@ import android.os.StrictMode
 import android.provider.Settings
 import android.Manifest
 import android.content.pm.PackageManager
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
-import android.text.format.Formatter
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.core.content.ContextCompat
+import android.text.format.Formatter
+import android.util.Log
 import androidx.core.content.getSystemService
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -137,8 +137,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        setTheme(R.style.Theme_LlamaAndroid)
         super.onCreate(savedInstanceState)
+        Log.d("MainActivity", "MainActivity started after splash screen")
 
         checkAndRequestPermissions()
 
