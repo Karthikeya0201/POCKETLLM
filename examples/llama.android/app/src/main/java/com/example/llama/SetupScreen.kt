@@ -167,12 +167,12 @@ fun SetupScreen(
                 .fillMaxWidth()
         ) {
             // Custom font for "Welcome!"
-            val customFont = FontFamily(Font(R.font.roboto_serif, FontWeight.Bold))
+            val customFont = FontFamily(Font(R.font.roboto_serif, FontWeight.Normal))
             Text(
                 text = "Welcome!",
                 style = TextStyle(
                     fontFamily = customFont,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Normal,
                     fontSize = 70.sp, // Increased from 28.sp to 40.sp
                     color = PurpleHeading
                 ),
@@ -310,7 +310,7 @@ fun SetupScreen(
                 Surface(
                     shape = RoundedCornerShape(4.dp),
                     color = PurplePrimary,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(20.dp)
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
@@ -320,7 +320,7 @@ fun SetupScreen(
                             painter = painterResource(id = R.drawable.ic_arrow_right),
                             contentDescription = "Arrow Right",
                             tint = White,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(12.dp)
                         )
                     }
                 }
