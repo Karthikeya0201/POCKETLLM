@@ -1,37 +1,32 @@
-package com.example.llama
+package com.example.llama.model
 
 import android.app.DownloadManager
 import android.net.Uri
-import android.util.Log
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.draw.clip
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.database.getLongOrNull
 import androidx.core.net.toUri
+import com.example.llama.MainViewModel
+import com.example.llama.ui.theme.PurplePrimary
 import kotlinx.coroutines.delay
 import java.io.File
 
-data class Downloadable(val name: String, val source: Uri, val destination: File) {
+data class Downloadable(
+    val name: String,
+    val source: Uri,
+    val destination: File,
+    val size: String, // e.g., "1.92GB"
+    val iconResId: Int // Resource ID for the model icon
+) {
     companion object {
         private val TAG: String = Downloadable::class.java.simpleName
 
@@ -47,34 +42,32 @@ data class Downloadable(val name: String, val source: Uri, val destination: File
             progress: Float,
             modifier: Modifier = Modifier
         ) {
-            val customGrey = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) // Even darker grey
             Box(
                 modifier = modifier
                     .fillMaxWidth()
                     .height(24.dp)
                     .background(
-                        color = customGrey,
-                        shape = MaterialTheme.shapes.extraLarge
+                        color = Color(0xFFDDA0DD).copy(alpha = 0.3f), // Light purple background
+                        shape = MaterialTheme.shapes.medium
                     )
-                    .clip(MaterialTheme.shapes.extraLarge)
+                    .clip(MaterialTheme.shapes.medium)
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(progress)
                         .height(24.dp)
                         .background(
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = MaterialTheme.shapes.extraLarge
+                            color = PurplePrimary, // Dark purple progress
+                            shape = MaterialTheme.shapes.medium
                         )
                 )
                 Text(
-                    text = "Downloading...",
-                    color = Color.Black, // Black for better visibility
+                    text = "Downloading... ${(progress * 100).toInt()}%",
+                    color = Color.White,
                     style = MaterialTheme.typography.labelMedium,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 4.dp)
+                        .align(Alignment.Center)
                         .fillMaxWidth()
                 )
             }
@@ -85,7 +78,8 @@ data class Downloadable(val name: String, val source: Uri, val destination: File
             viewModel: MainViewModel,
             downloadManager: DownloadManager,
             item: Downloadable,
-            onDownloadComplete: (String) -> Unit = {}
+            onDownloadComplete: (String) -> Unit = {},
+            modifier: Modifier = Modifier
         ) {
             var status by remember {
                 mutableStateOf<State>(
@@ -100,13 +94,13 @@ data class Downloadable(val name: String, val source: Uri, val destination: File
                     while (true) {
                         val cursor = downloadManager.query(DownloadManager.Query().setFilterById(downloading.id))
                         if (cursor == null) {
-                            Log.e(TAG, "DownloadManager query returned null")
+                            android.util.Log.e(TAG, "DownloadManager query returned null")
                             status = State.Error("DownloadManager query failed")
                             return@LaunchedEffect
                         }
                         if (!cursor.moveToFirst() || cursor.count < 1) {
                             cursor.close()
-                            Log.i(TAG, "Download canceled or not found")
+                            android.util.Log.i(TAG, "Download canceled or not found")
                             status = State.Ready
                             return@LaunchedEffect
                         }
@@ -127,9 +121,42 @@ data class Downloadable(val name: String, val source: Uri, val destination: File
                 }
             }
 
-            Column {
-                // Conditionally render the button only when not downloading
-                if (status !is State.Downloading) {
+            Row(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    painter = painterResource(id = item.iconResId),
+                    contentDescription = item.name,
+                    tint = Color.Unspecified, // Preserve original icon colors
+                    modifier = Modifier
+                        .size(40.dp)
+                        .padding(end = 16.dp)
+                )
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = item.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color(0xFF800080) // Dark purple
+                    )
+                    Text(
+                        text = item.size,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF800080).copy(alpha = 0.7f)
+                    )
+                }
+                if (status is State.Downloading) {
+                    CustomProgressBar(
+                        progress = progress.toFloat(),
+                        modifier = Modifier
+                            .width(100.dp)
+                            .padding(start = 16.dp)
+                    )
+                } else {
                     Button(
                         onClick = {
                             when (val currentStatus = status) {
@@ -146,9 +173,12 @@ data class Downloadable(val name: String, val source: Uri, val destination: File
                                         setTitle("Downloading ${item.name}")
                                         setDescription("Model: ${item.name}")
                                         setAllowedNetworkTypes(
-                                            DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE
+                                            DownloadManager.Request.NETWORK_WIFI or
+                                                DownloadManager.Request.NETWORK_MOBILE
                                         )
-                                        setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                        setNotificationVisibility(
+                                            DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+                                        )
                                         setDestinationUri(item.destination.toUri())
                                     }
                                     viewModel.log("Saving ${item.name} to ${item.destination.path}")
@@ -157,29 +187,22 @@ data class Downloadable(val name: String, val source: Uri, val destination: File
                                 }
                             }
                         },
-                        enabled = true,
+                        enabled = status !is State.Downloading,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                            containerColor = PurplePrimary,
+                            contentColor = Color.White
+                        ),
+                        modifier = Modifier.padding(start = 16.dp)
                     ) {
                         Text(
                             when (status) {
-                                is State.Downloaded -> "Load ${item.name}"
-                                is State.Ready -> "Download ${item.name}"
-                                is State.Error -> "Retry ${item.name}"
+                                is State.Downloaded -> "Load"
+                                is State.Ready -> "Download"
+                                is State.Error -> "Retry"
                                 is State.Downloading -> ""
                             }
                         )
                     }
-                }
-                if (status is State.Downloading) {
-                    CustomProgressBar(
-                        progress = progress.toFloat(),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp)
-                    )
                 }
             }
         }

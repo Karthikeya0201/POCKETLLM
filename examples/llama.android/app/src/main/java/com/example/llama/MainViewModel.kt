@@ -19,8 +19,8 @@ import java.io.File
 import java.util.*
 
 class MainViewModel(private val context: Context) : ViewModel() {
-    val userName = mutableStateOf("User")
-    val assistantName = mutableStateOf("Assistant")
+    var userName = mutableStateOf("")
+    var assistantName = mutableStateOf("")
     val message = mutableStateOf("")
     val messages = mutableStateListOf<String>()
     val chatHistories = mutableStateListOf<ChatHistory>()
@@ -36,9 +36,9 @@ class MainViewModel(private val context: Context) : ViewModel() {
     var currentChatId: String? = null // Track the current chat being edited
 
     fun loadPrefs(prefs: SharedPreferences) {
-        userName.value = prefs.getString("userName", "User") ?: "User"
-        assistantName.value = prefs.getString("assistantName", "Assistant") ?: "Assistant"
-        modelPath.value = prefs.getString("modelPath", "") ?: ""
+//        userName.value = prefs.getString("userName", "User") ?: "User"
+//        assistantName.value = prefs.getString("assistantName", "Assistant") ?: "Assistant"
+//        modelPath.value = prefs.getString("modelPath", "") ?: ""
         chatsDir = File(context.filesDir, "chat_histories").apply {
             mkdirs()
             Log.d("MainViewModel", "Initialized chatsDir: $absolutePath")
