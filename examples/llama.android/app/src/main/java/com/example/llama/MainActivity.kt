@@ -11,6 +11,7 @@ import android.os.Environment
 import android.os.StrictMode
 import android.provider.Settings
 import android.Manifest
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -29,6 +30,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.llama.model.Downloadable
+import com.example.llama.SetupScreen
 import com.example.llama.ui.theme.LlamaAndroidTheme
 import java.io.File
 
@@ -160,21 +162,21 @@ class MainActivity : ComponentActivity() {
                 name = "Orca Mini-3B",
                 source = Uri.parse("https://huggingface.co/Aryanne/Orca-Mini-3B-gguf/resolve/main/q4_0-orca-mini-3b.gguf?download=true"),
                 destination = File(extFilesDir, "q4_0-orca-mini-3b.gguf"),
-                size = "1.92GB",
+                size = 1.92f,
                 iconResId = R.drawable.ic_orca_icon
             ),
             Downloadable(
                 name = "Gemma 3-4B",
                 source = Uri.parse("https://huggingface.co/google/gemma-3-4b/resolve/main/gemma-3-4b.q4_0.gguf?download=true"),
                 destination = File(extFilesDir, "gemma-3-4b.q4_0.gguf"),
-                size = "2.32GB",
+                size = 2.32f,
                 iconResId = R.drawable.ic_gemma_icon
             ),
             Downloadable(
                 name = "Mistral-7B",
                 source = Uri.parse("https://huggingface.co/mistralai/Mixtral-8x7B-v0.1/resolve/main/mixtral-8x7b.q4_0.gguf?download=true"),
                 destination = File(extFilesDir, "mixtral-8x7b.q4_0.gguf"),
-                size = "4.12GB",
+                size = 4.12f,
                 iconResId = R.drawable.ic_mistral_icon
             )
         )
@@ -233,7 +235,7 @@ fun AppNavigation(
     clipboardManager: ClipboardManager,
     models: List<Downloadable>,
     isFirstLaunch: Boolean,
-    prefs: android.content.SharedPreferences,
+    prefs: SharedPreferences,
     requestPermissions: (Array<String>) -> Unit
 ) {
     val navController = rememberNavController()
@@ -281,12 +283,11 @@ fun AppNavigation(
 @Preview(showBackground = true)
 @Composable
 fun AppPreview() {
-    // Use LocalContext to get a Context in the preview
     val context = LocalContext.current
     LlamaAndroidTheme {
         AppNavigation(
             viewModel = MainViewModel(context),
-            downloadManager = null!!, // Still null for preview; won't be used
+            downloadManager = null!!,
             clipboardManager = null!!,
             models = emptyList(),
             isFirstLaunch = true,

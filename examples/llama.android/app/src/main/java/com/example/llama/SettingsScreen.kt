@@ -4,29 +4,37 @@ import android.app.DownloadManager
 import android.content.SharedPreferences
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.example.llama.component.ModelImportCard
-import com.example.llama.component.NameFieldComponent
 import com.example.llama.component.ProgressComponent
-import com.example.llama.component.SettingsContent
-import com.example.llama.component.SettingsSidebar
 import com.example.llama.model.Downloadable
-import com.example.llama.model.SettingsMenuItem
 import com.example.llama.ui.theme.PurplePrimary
 import com.example.llama.ui.theme.PurpleLight
-import com.example.llama.ui.theme.PurpleLabel
+import com.example.llama.ui.theme.PurpleHeading
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,9 +45,24 @@ fun SettingsScreen(
     modelOptions: List<Downloadable>,
     prefs: SharedPreferences
 ) {
-    val context = LocalContext.current
-    var selectedItem by remember { mutableStateOf(SettingsMenuItem.PROFILE) }
+    val settingsNavController = rememberNavController()
+    var isUserNameFocused by remember { mutableStateOf(false) }
+    var isAssistantNameFocused by remember { mutableStateOf(false) }
+    var showModelDialog by remember { mutableStateOf(false) }
+    // Determine if the loaded model is downloaded or imported
+    val loadedModel by remember(viewModel.selectedFileName.value) {
+        derivedStateOf {
+            val modelName = viewModel.selectedFileName.value
+            if (modelName.isNullOrEmpty()) null
+            else {
+                val isDownloaded = modelOptions.any { it.name == modelName }
+                Pair(modelName, isDownloaded)
+            }
+        }
+    }
 
+    val context = LocalContext.current
+    // File picker for importing .gguf files
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
         onResult = { uri ->
@@ -55,7 +78,7 @@ fun SettingsScreen(
                     if (fileName != null && fileName.endsWith(".gguf", ignoreCase = true)) {
                         viewModel.setModelPath(uri.toString())
                         viewModel.savePrefs(prefs)
-                        navController.popBackStack()
+                        showModelDialog = false
                     } else {
                         viewModel.importError.value = "Please select a .gguf file"
                     }
@@ -68,238 +91,312 @@ fun SettingsScreen(
         }
     )
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        "Settings",
-                        color = PurplePrimary
+    NavHost(
+        navController = settingsNavController,
+        startDestination = "settings_main"
+    ) {
+        composable("settings_main") {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                "Settings",
+                                color = PurpleHeading,
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { navController.popBackStack() }) {
+                                Icon(
+                                    Icons.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = PurpleHeading
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.White
+                        )
                     )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(
-                            Icons.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = PurplePrimary
+                }
+            ) { padding ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .background(Color.White)
+                        .padding(horizontal = 18.dp, vertical = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(32.dp)
+                ) {
+                    // Your Name Field
+                    OutlinedTextField(
+                        value = viewModel.userName.value,
+                        onValueChange = { viewModel.userName.value = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
+                            .onFocusChanged { focusState ->
+                                isUserNameFocused = focusState.isFocused
+                            },
+                        label = {
+                            Text(
+                                "Your Name",
+                                color = PurplePrimary,
+                                modifier = if (isUserNameFocused || viewModel.userName.value.isNotEmpty()) {
+                                    Modifier
+                                        .background(
+                                            color = Color(0xFFFEF7FF),
+                                            shape = RoundedCornerShape(4.dp)
+                                        )
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                } else {
+                                    Modifier
+                                }
+                            )
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = PurplePrimary,
+                            unfocusedBorderColor = Color(0xFFCAC4D0),
+                            focusedLabelColor = PurplePrimary,
+                            unfocusedLabelColor = PurplePrimary.copy(alpha = 0.6f)
+                        ),
+                        shape = RoundedCornerShape(5.dp),
+                        singleLine = true
+                    )
+
+                    // Assistant Name Field
+                    OutlinedTextField(
+                        value = viewModel.assistantName.value,
+                        onValueChange = { viewModel.assistantName.value = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
+                            .onFocusChanged { focusState ->
+                                isAssistantNameFocused = focusState.isFocused
+                            },
+                        label = {
+                            Text(
+                                "Assistant Name",
+                                color = PurplePrimary,
+                                modifier = if (isAssistantNameFocused || viewModel.assistantName.value.isNotEmpty()) {
+                                    Modifier
+                                        .background(
+                                            color = Color(0xFFFEF7FF),
+                                            shape = RoundedCornerShape(4.dp)
+                                        )
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                } else {
+                                    Modifier
+                                }
+                            )
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = PurplePrimary,
+                            unfocusedBorderColor = Color(0xFFCAC4D0),
+                            focusedLabelColor = PurplePrimary,
+                            unfocusedLabelColor = PurplePrimary.copy(alpha = 0.6f)
+                        ),
+                        shape = RoundedCornerShape(5.dp),
+                        singleLine = true
+                    )
+
+                    // Model Loaded Card
+                    Card(
+                        onClick = { showModelDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
+                            .height(72.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = PurpleLight.copy(alpha = 0.2f)),
+                        border = BorderStroke(1.dp, Color(0xFFD9BDFE))
+                    ) {
+                        if (loadedModel != null) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 16.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFD9BDFE),
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        if (loadedModel!!.second) {
+                                            Image(
+                                                painter = painterResource(
+                                                    id = when (loadedModel!!.first) {
+                                                        "Orca Mini-3B" -> R.drawable.ic_orca_icon
+                                                        "Gemma 3-4B" -> R.drawable.ic_gemma_icon
+                                                        "Mistral-7B" -> R.drawable.ic_mistral_icon
+                                                        else -> R.drawable.ic_ai_chip
+                                                    }
+                                                ),
+                                                contentDescription = "Model Icon",
+                                                modifier = Modifier
+                                                    .padding(8.dp)
+                                                    .fillMaxSize()
+                                            )
+                                        } else {
+                                            Image(
+                                                painter = painterResource(id = R.drawable.ic_ai_chip),
+                                                contentDescription = "AI Chip",
+                                                modifier = Modifier
+                                                    .padding(8.dp)
+                                                    .fillMaxSize()
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(
+                                            text = "Model Loaded",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = Color(0xFF1C1B1F)
+                                        )
+                                        Text(
+                                            text = loadedModel!!.first,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = Color(0xFF1C1B1F).copy(alpha = 0.6f)
+                                        )
+                                    }
+                                }
+                                Icon(
+                                    imageVector = Icons.Default.ArrowForward,
+                                    contentDescription = "Manage Model",
+                                    tint = PurplePrimary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        } else {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 20.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_ai_chip),
+                                        contentDescription = "AI Chip",
+                                        tint = PurplePrimary,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        text = "Choose Your AI Model",
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            color = PurplePrimary,
+                                            fontSize = 16.sp
+                                        )
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = PurplePrimary,
+                                    modifier = Modifier.size(20.dp)
+                                ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_arrow_right),
+                                            contentDescription = "Arrow Right",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Model Import Popup
+                    if (showModelDialog) {
+                        Dialog(
+                            onDismissRequest = { showModelDialog = false },
+                            properties = DialogProperties(
+                                usePlatformDefaultWidth = false,
+                                dismissOnBackPress = true,
+                                dismissOnClickOutside = true
+                            )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.5f))
+                                    .padding(16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                ModelImportCard(
+                                    viewModel = viewModel,
+                                    downloadManager = downloadManager,
+                                    modelOptions = modelOptions,
+                                    onImportClick = { filePickerLauncher.launch("*/*") },
+                                    onSave = { path: String, success: Boolean ->
+                                        if (success) {
+                                            viewModel.setModelPath(path)
+                                            viewModel.savePrefs(prefs)
+                                            showModelDialog = false
+                                        } else {
+                                            viewModel.importError.value = "Failed to load model"
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.9f)
+                                        .wrapContentHeight()
+                                        .align(Alignment.Center)
+                                )
+                            }
+                        }
+                    }
+
+                    // Display import errors
+                    if (viewModel.importError.value.isNotEmpty()) {
+                        Text(
+                            text = viewModel.importError.value,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 8.dp)
                         )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = PurpleLight.copy(alpha = 0.4f)
-                )
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(Color.White)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            ) {
-                SettingsSidebar(
-                    selectedItem = selectedItem,
-                    onItemClick = { selectedItem = it },
-                    modifier = Modifier.weight(1f)
-                )
-                SettingsContent(
-                    selectedItem = selectedItem,
-                    viewModel = viewModel,
-                    downloadManager = downloadManager,
-                    modelOptions = modelOptions,
-                    prefs = prefs,
-                    onImportClick = { filePickerLauncher.launch("*/*") },
-                    modifier = Modifier
-                        .weight(3f)
-                        .padding(16.dp)
-                )
+
+                    // Global progress indicator (if needed)
+                    ProgressComponent(
+                        progress = 0f,
+                        isLoading = viewModel.isLoadingModel.value,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Save Changes Button
+                    Button(
+                        onClick = {
+                            viewModel.savePrefs(prefs)
+                            navController.popBackStack()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PurplePrimary
+                        )
+                    ) {
+                        Text(
+                            "Save Changes",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                }
             }
         }
     }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ProfileSettings(
-    viewModel: MainViewModel,
-    prefs: SharedPreferences,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        var isEditingName by remember { mutableStateOf(false) }
-        var nameValue by remember { mutableStateOf(viewModel.userName.value) }
-        var showNameBadge by remember { mutableStateOf(false) }
-
-        NameFieldComponent(
-            label = "Your Name",
-            value = nameValue,
-            onValueChange = { newValue ->
-                nameValue = newValue
-                viewModel.userName.value = newValue
-            },
-            onSave = {
-                isEditingName = false
-                viewModel.savePrefs(prefs)
-            },
-            isEditing = isEditingName,
-            onFocusChange = { focused ->
-                showNameBadge = focused && nameValue.isEmpty()
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (showNameBadge) {
-            Badge(
-                containerColor = PurpleLabel,
-                contentColor = Color.White,
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .align(Alignment.CenterHorizontally)
-            ) {
-                Text("User", fontSize = 12.sp)
-            }
-        }
-
-        var isEditingAssistant by remember { mutableStateOf(false) }
-        var assistantValue by remember { mutableStateOf(viewModel.assistantName.value) }
-        var showAssistantBadge by remember { mutableStateOf(false) }
-
-        NameFieldComponent(
-            label = "Assistant Name",
-            value = assistantValue,
-            onValueChange = { newValue ->
-                assistantValue = newValue
-                viewModel.assistantName.value = newValue
-            },
-            onSave = {
-                isEditingAssistant = false
-                viewModel.savePrefs(prefs)
-            },
-            isEditing = isEditingAssistant,
-            onFocusChange = { focused ->
-                showAssistantBadge = focused && assistantValue.isEmpty()
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (showAssistantBadge) {
-            Badge(
-                containerColor = PurpleLabel,
-                contentColor = Color.White,
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .align(Alignment.CenterHorizontally)
-            ) {
-                Text("Jarvis", fontSize = 12.sp)
-            }
-        }
-    }
-}
-
-@Composable
-fun ModelSettings(
-    viewModel: MainViewModel,
-    downloadManager: DownloadManager,
-    modelOptions: List<Downloadable>,
-    onImportClick: () -> Unit,
-    prefs: SharedPreferences,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        ModelImportCard(
-            viewModel = viewModel,
-            downloadManager = downloadManager,
-            modelOptions = modelOptions,
-            onImportClick = onImportClick,
-            onSave = { viewModel.savePrefs(prefs) },
-            modifier = Modifier.fillMaxWidth()
-        )
-        ProgressComponent(
-            progress = 0f, // Progress handled in ModelImportCard or Downloadable.DownloadButton
-            isLoading = viewModel.isLoadingModel.value,
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (viewModel.importError.value.isNotEmpty()) {
-            Text(
-                text = viewModel.importError.value,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-        }
-    }
-}
-
-// Placeholder composables for other settings sections
-@Composable
-fun NotificationsSettings(modifier: Modifier = Modifier) {
-    Text(
-        text = "Notifications Settings",
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = modifier
-    )
-}
-
-@Composable
-fun RecentChatsSettings(modifier: Modifier = Modifier) {
-    Text(
-        text = "Recent Chats Settings",
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = modifier
-    )
-}
-
-@Composable
-fun AboutSettings(modifier: Modifier = Modifier) {
-    Text(
-        text = "About Settings",
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = modifier
-    )
-}
-
-@Composable
-fun ArchivedChatsSettings(modifier: Modifier = Modifier) {
-    Text(
-        text = "Archived Chats Settings",
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = modifier
-    )
-}
-
-@Composable
-fun CallsSettings(modifier: Modifier = Modifier) {
-    Text(
-        text = "Calls Settings",
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = modifier
-    )
-}
-
-@Composable
-fun GroupsSettings(modifier: Modifier = Modifier) {
-    Text(
-        text = "Groups Settings",
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = modifier
-    )
-}
-
-@Composable
-fun PrivacySettings(modifier: Modifier = Modifier) {
-    Text(
-        text = "Privacy Settings",
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = modifier
-    )
 }

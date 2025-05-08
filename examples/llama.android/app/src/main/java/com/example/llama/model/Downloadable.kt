@@ -17,14 +17,19 @@ import androidx.core.database.getLongOrNull
 import androidx.core.net.toUri
 import com.example.llama.MainViewModel
 import com.example.llama.ui.theme.PurplePrimary
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 data class Downloadable(
     val name: String,
     val source: Uri,
     val destination: File,
-    val size: String, // e.g., "1.92GB"
+    val size: Float, // Change from String to Float
     val iconResId: Int // Resource ID for the model icon
 ) {
     companion object {
@@ -144,7 +149,7 @@ data class Downloadable(
                         color = Color(0xFF800080) // Dark purple
                     )
                     Text(
-                        text = item.size,
+                        text = item.size.toString(),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFF800080).copy(alpha = 0.7f)
                     )
@@ -206,5 +211,67 @@ data class Downloadable(
                 }
             }
         }
+    }
+
+    fun download(
+        viewModel: MainViewModel,
+        downloadManager: DownloadManager,
+        scope: CoroutineScope,
+        onProgressUpdate: (Float) -> Unit
+    ): Long {
+        // Set destination to app's internal storage
+        val internalDestination = File(destination.parent, name.lowercase().replace(" ", "_") + ".gguf")
+        internalDestination.delete()
+
+        val request = DownloadManager.Request(source).apply {
+            setTitle("Downloading $name")
+            setDescription("Model: $name")
+            setAllowedNetworkTypes(
+                DownloadManager.Request.NETWORK_WIFI or
+                    DownloadManager.Request.NETWORK_MOBILE
+            )
+            setNotificationVisibility(
+                DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+            )
+            setDestinationUri(internalDestination.toUri())
+        }
+
+        viewModel.log("Saving $name to ${internalDestination.path}")
+        val downloadId = downloadManager.enqueue(request)
+
+        // Use a coroutine to track progress
+        scope.launch(Dispatchers.IO) {
+            var downloading = true
+            while (downloading && isActive) {
+                val query = DownloadManager.Query().setFilterById(downloadId)
+                val cursor = downloadManager.query(query)
+
+                if (cursor.moveToFirst()) {
+                    val downloadedIndex = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+                    val totalIndex = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+
+                    val bytesDownloaded = if (downloadedIndex >= 0) cursor.getLong(downloadedIndex) else 0L
+                    val bytesTotal = if (totalIndex >= 0) cursor.getLong(totalIndex) else 1L
+
+                    if (bytesTotal > 0) {
+                        val progress = bytesDownloaded.toFloat() / bytesTotal
+                        withContext(Dispatchers.Main) {
+                            onProgressUpdate(progress)
+                        }
+
+                        if (bytesDownloaded == bytesTotal) {
+                            downloading = false
+                            withContext(Dispatchers.Main) {
+                                viewModel.setModelPath(internalDestination.absolutePath)
+                            }
+                        }
+                    }
+                }
+                cursor.close()
+                delay(100)
+            }
+        }
+
+        return downloadId
     }
 }
