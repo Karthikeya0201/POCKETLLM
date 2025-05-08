@@ -2,6 +2,8 @@ package com.example.llama
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Log
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -9,7 +11,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.llama.model.ChatHistory
 import android.llama.cpp.LLamaAndroid
-import android.net.Uri
 import androidx.compose.runtime.State
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
@@ -19,6 +20,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.FileOutputStream
 import java.util.*
 
 class MainViewModel(private val context: Context) : ViewModel() {
@@ -58,6 +60,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
     }
 
+    fun getModelFileName(modelName: String): String {
+        return "${modelName.lowercase().replace(" ", "_")}.gguf"
+    }
+
     fun loadPrefs(prefs: SharedPreferences) {
         userName.value = prefs.getString("userName", "") ?: ""
         assistantName.value = prefs.getString("assistantName", "") ?: ""
@@ -72,47 +78,60 @@ class MainViewModel(private val context: Context) : ViewModel() {
 
         // Initialize selectedUri and selectedFileName based on modelPath
         if (modelPath.value.isNotEmpty()) {
-            selectedUri.value = Uri.parse(modelPath.value)
-            selectedFileName.value = modelPath.value.substringAfterLast('/')
-            Log.d("MainViewModel", "Initialized selectedUri=${selectedUri.value}, selectedFileName=${selectedFileName.value}")
-        }
-
-        if (modelPath.value.isNotEmpty()) {
             val modelFile = File(modelPath.value)
+            Log.d("MainViewModel", "Checking model file: path=${modelPath.value}, exists=${modelFile.exists()}, absolutePath=${modelFile.absolutePath}")
             if (modelFile.exists()) {
-                Log.d("MainViewModel", "Model file exists at: ${modelPath.value}")
-                // Run blocking to ensure model is loaded before proceeding
+                selectedUri.value = Uri.fromFile(modelFile)
+                selectedFileName.value = modelPath.value.substringAfterLast('/')
+                Log.d("MainViewModel", "Initialized selectedUri=${selectedUri.value}, selectedFileName=${selectedFileName.value}")
                 runBlocking {
                     try {
                         isLoadingModel.value = true
                         Log.d("MainViewModel", "Attempting to load model from path: ${modelPath.value}")
                         try {
                             llama.unload()
+                            Log.d("MainViewModel", "Unloaded any existing model")
                         } catch (e: Exception) {
                             Log.e("MainViewModel", "Error unloading model: ${e.message}")
                         }
                         llama.load(modelPath.value)
                         setModelLoaded(true)
-                        Log.d("MainViewModel", "Model successfully loaded from saved path: ${modelPath.value}")
+                        Log.d("MainViewModel", "Model successfully loaded from saved path: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
                     } catch (e: Exception) {
                         importError.value = "Failed to load model on startup: ${e.message}"
                         setModelLoaded(false)
-                        Log.e("MainViewModel", "Model load error on startup: ${e.stackTraceToString()}")
+                        // Clear modelPath to force re-selection
+                        modelPath.value = ""
+                        selectedUri.value = null
+                        selectedFileName.value = null
+                        with(sharedPrefs.edit()) {
+                            putString("modelPath", "")
+                            putBoolean("isModelLoaded", false)
+                            apply()
+                        }
+                        Log.e("MainViewModel", "Model load error on startup: ${e.stackTraceToString()}, cleared modelPath, isModelLoaded=${isModelLoaded.value}")
                     } finally {
                         isLoadingModel.value = false
                     }
                 }
             } else {
                 setModelLoaded(false)
-                Log.e("MainViewModel", "Model file does not exist at saved path: ${modelPath.value}")
+                // Clear modelPath to force re-selection
                 modelPath.value = ""
                 selectedUri.value = null
                 selectedFileName.value = null
-                savePrefs(sharedPrefs)
+                with(sharedPrefs.edit()) {
+                    putString("modelPath", "")
+                    putBoolean("isModelLoaded", false)
+                    apply()
+                }
+                Log.e("MainViewModel", "Model file does not exist at saved path: ${modelPath.value}, cleared modelPath, isModelLoaded=${isModelLoaded.value}")
             }
         } else {
             setModelLoaded(false)
-            Log.d("MainViewModel", "No model path saved in preferences")
+            selectedUri.value = null
+            selectedFileName.value = null
+            Log.d("MainViewModel", "No model path saved in preferences, isModelLoaded=${isModelLoaded.value}")
         }
     }
 
@@ -120,15 +139,13 @@ class MainViewModel(private val context: Context) : ViewModel() {
         with(prefs.edit()) {
             putString("userName", userName.value)
             putString("assistantName", assistantName.value)
-            // Use selectedUri to ensure consistency
-            putString("modelPath", selectedUri.value?.toString() ?: "")
+            putString("modelPath", modelPath.value)
             putBoolean("isFirstLaunch", false)
             putString("historyDir", chatsDir.parent ?: context.filesDir.absolutePath)
             apply()
         }
-        modelPath.value = selectedUri.value?.toString() ?: ""
-        llama.initialize(userName.value, assistantName.value)
         Log.d("MainViewModel", "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}")
+        llama.initialize(userName.value, assistantName.value)
     }
 
     private fun loadChatHistories() {
@@ -232,31 +249,89 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
     }
 
-    fun setModelPath(path: String) {
-        if (!path.endsWith(".gguf") && !File(path).exists()) {
-            importError.value = "Please select a valid .gguf file or ensure the file exists"
-            Log.d("MainViewModel", "Invalid model path: $path")
-            return
-        }
-        isLoadingModel.value = true
-        importError.value = ""
+    fun setModelPath(modelSource: Any) {
         viewModelScope.launch {
             try {
-                Log.d("MainViewModel", "Attempting to load model from path: $path")
+                isLoadingModel.value = true
+                importError.value = ""
+                val modelPathStr: String
+                when (modelSource) {
+                    is String -> {
+                        val file = File(modelSource)
+                        Log.d("MainViewModel", "setModelPath: modelSource=$modelSource, file.exists=${file.exists()}")
+                        if (file.exists()) {
+                            if (!file.name.endsWith(".gguf", ignoreCase = true)) {
+                                importError.value = "Model file must be a .gguf file: ${file.name}"
+                                setModelLoaded(false)
+                                Log.e("MainViewModel", "Invalid file type: ${file.name}, isModelLoaded=${isModelLoaded.value}")
+                                return@launch
+                            }
+                            modelPathStr = modelSource
+                        } else {
+                            importError.value = "Model file does not exist: $modelSource"
+                            setModelLoaded(false)
+                            Log.e("MainViewModel", "Model file does not exist: $modelSource, isModelLoaded=${isModelLoaded.value}")
+                            return@launch
+                        }
+                    }
+                    is Uri -> {
+                        val uri = modelSource
+                        val fileName = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                            if (cursor.moveToFirst()) {
+                                val displayNameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                                if (displayNameIndex != -1) cursor.getString(displayNameIndex) else null
+                            } else null
+                        } ?: uri.lastPathSegment ?: "model.gguf"
+                        if (!fileName.endsWith(".gguf", ignoreCase = true)) {
+                            importError.value = "Please select a .gguf file"
+                            setModelLoaded(false)
+                            Log.e("MainViewModel", "Invalid file type: $fileName, isModelLoaded=${isModelLoaded.value}")
+                            return@launch
+                        }
+                        val internalFile = File(context.filesDir, fileName)
+                        context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                            FileOutputStream(internalFile).use { outputStream ->
+                                inputStream.copyTo(outputStream)
+                            }
+                        }
+                        if (internalFile.exists()) {
+                            modelPathStr = internalFile.absolutePath
+                            Log.d("MainViewModel", "Copied file from URI: $uri, new path: $modelPathStr")
+                        } else {
+                            importError.value = "Failed to copy model file from $uri"
+                            setModelLoaded(false)
+                            Log.e("MainViewModel", "Failed to copy file from URI: $uri, isModelLoaded=${isModelLoaded.value}")
+                            return@launch
+                        }
+                    }
+                    else -> {
+                        importError.value = "Invalid model source: $modelSource"
+                        setModelLoaded(false)
+                        Log.e("MainViewModel", "Invalid model source: $modelSource, isModelLoaded=${isModelLoaded.value}")
+                        return@launch
+                    }
+                }
+                Log.d("MainViewModel", "Attempting to load model from path: $modelPathStr")
                 if (_isModelLoaded.value) {
                     Log.d("MainViewModel", "Unloading existing model before loading new one")
-                    llama.unload()
+                    try {
+                        llama.unload()
+                        Log.d("MainViewModel", "Unloaded existing model")
+                    } catch (e: Exception) {
+                        Log.e("MainViewModel", "Error unloading model: ${e.message}")
+                    }
                 }
-                modelPath.value = path
-                selectedUri.value = Uri.parse(path)
-                selectedFileName.value = path.substringAfterLast('/')
-                llama.load(path)
+                llama.load(modelPathStr)
+                modelPath.value = modelPathStr
+                selectedFileName.value = modelPathStr.substringAfterLast('/')
+                selectedUri.value = Uri.fromFile(File(modelPathStr))
                 setModelLoaded(true)
-                Log.d("MainViewModel", "Model loaded: $path, selectedFileName=${selectedFileName.value}")
+                savePrefs(sharedPrefs) // Ensure the path is saved
+                Log.d("MainViewModel", "Model loaded successfully: $modelPathStr, selectedFileName=${selectedFileName.value}, isModelLoaded=${isModelLoaded.value}")
             } catch (e: Exception) {
                 importError.value = "Failed to load model: ${e.message}"
                 setModelLoaded(false)
-                Log.e("MainViewModel", "Model load error: ${e.stackTraceToString()}")
+                Log.e("MainViewModel", "Model load error: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
             } finally {
                 isLoadingModel.value = false
             }
@@ -270,22 +345,22 @@ class MainViewModel(private val context: Context) : ViewModel() {
         currentChatId = null
         sendJob?.cancel()
         isGenerating.value = false
-        // Only reload the model if it's not already loaded
         if (!_isModelLoaded.value && modelPath.value.isNotEmpty() && File(modelPath.value).exists()) {
             viewModelScope.launch {
                 try {
                     Log.d("MainViewModel", "Model not loaded, attempting to load: ${modelPath.value}")
                     try {
                         llama.unload()
+                        Log.d("MainViewModel", "Unloaded any existing model")
                     } catch (e: Exception) {
                         Log.e("MainViewModel", "Error unloading model: ${e.message}")
                     }
                     llama.load(modelPath.value)
                     setModelLoaded(true)
-                    Log.d("MainViewModel", "Model loaded successfully in startNewChat: ${modelPath.value}")
+                    Log.d("MainViewModel", "Model loaded successfully in startNewChat: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
                 } catch (e: Exception) {
                     setModelLoaded(false)
-                    Log.e("MainViewModel", "Model load error in startNewChat: ${e.stackTraceToString()}")
+                    Log.e("MainViewModel", "Model load error in startNewChat: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
                 }
             }
         } else {
@@ -309,7 +384,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 if (modelPath.value.isEmpty() || !isModelLoaded.value) {
                     messages.add("${assistantName.value}: No model loaded. Please load a model from Settings.")
                     isGenerating.value = false
-                    Log.d("MainViewModel", "No model loaded")
+                    Log.d("MainViewModel", "No model loaded: modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
                     return@launch
                 }
 

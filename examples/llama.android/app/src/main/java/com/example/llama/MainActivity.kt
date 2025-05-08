@@ -23,6 +23,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
 import android.text.format.Formatter
 import android.util.Log
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.core.content.getSystemService
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -30,7 +32,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.llama.model.Downloadable
-import com.example.llama.SetupScreen
 import com.example.llama.ui.theme.LlamaAndroidTheme
 import java.io.File
 
@@ -181,8 +182,7 @@ class MainActivity : ComponentActivity() {
             )
         )
 
-        val prefs = getSharedPreferences("LlamaPrefs", Context.MODE_PRIVATE)
-        val isFirstLaunch = prefs.getBoolean("isFirstLaunch", true)
+        val prefs = getSharedPreferences("PocketLLMPrefs", Context.MODE_PRIVATE)
         viewModel.loadPrefs(prefs)
 
         setContent {
@@ -192,7 +192,6 @@ class MainActivity : ComponentActivity() {
                     downloadManager = downloadManager,
                     clipboardManager = clipboardManager,
                     models = models,
-                    isFirstLaunch = isFirstLaunch,
                     prefs = prefs,
                     requestPermissions = { permissions ->
                         Log.d("MainActivity", "Requesting permissions via callback: $permissions")
@@ -234,14 +233,32 @@ fun AppNavigation(
     downloadManager: DownloadManager,
     clipboardManager: ClipboardManager,
     models: List<Downloadable>,
-    isFirstLaunch: Boolean,
     prefs: SharedPreferences,
     requestPermissions: (Array<String>) -> Unit
 ) {
     val navController = rememberNavController()
+    val isModelLoaded by viewModel.isModelLoaded
+    val isFirstLaunch = prefs.getBoolean("isFirstLaunch", true)
+
+    // Determine start destination based on both isFirstLaunch and isModelLoaded
+    val startDestination = when {
+        isFirstLaunch -> {
+            Log.d("MainActivity", "Starting at setup screen due to first launch")
+            "setup"
+        }
+        !isModelLoaded -> {
+            Log.d("MainActivity", "Starting at setup screen due to model not loaded")
+            "setup"
+        }
+        else -> {
+            Log.d("MainActivity", "Starting at chat screen")
+            "chat"
+        }
+    }
+
     NavHost(
         navController = navController,
-        startDestination = if (isFirstLaunch) "setup" else "chat"
+        startDestination = startDestination
     ) {
         composable("setup") {
             SetupScreen(
@@ -249,17 +266,27 @@ fun AppNavigation(
                 viewModel = viewModel,
                 downloadManager = downloadManager,
                 modelOptions = models,
-                isFirstLaunch = true,
+                isFirstLaunch = isFirstLaunch,
                 prefs = prefs
             )
         }
         composable("chat") {
-            ChatScreen(
-                navController = navController,
-                viewModel = viewModel,
-                clipboardManager = clipboardManager,
-                requestPermissions = requestPermissions
-            )
+            // Double-check isModelLoaded before rendering ChatScreen
+            if (isModelLoaded) {
+                ChatScreen(
+                    navController = navController,
+                    viewModel = viewModel,
+                    clipboardManager = clipboardManager,
+                    requestPermissions = requestPermissions
+                )
+            } else {
+                LaunchedEffect(Unit) {
+                    Log.d("MainActivity", "Model not loaded in chat route, navigating to setup screen")
+                    navController.navigate("setup") {
+                        popUpTo("chat") { inclusive = true }
+                    }
+                }
+            }
         }
         composable("settings") {
             SettingsScreen(
@@ -290,8 +317,7 @@ fun AppPreview() {
             downloadManager = null!!,
             clipboardManager = null!!,
             models = emptyList(),
-            isFirstLaunch = true,
-            prefs = context.getSharedPreferences("LlamaPrefs", Context.MODE_PRIVATE),
+            prefs = context.getSharedPreferences("PocketLLMPrefs", Context.MODE_PRIVATE),
             requestPermissions = {}
         )
     }

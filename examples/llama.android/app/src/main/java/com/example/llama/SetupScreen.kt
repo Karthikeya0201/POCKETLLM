@@ -44,6 +44,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import android.util.Log
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -335,11 +336,17 @@ fun SetupScreen(
                         downloadManager = downloadManager,
                         modelOptions = modelOptions,
                         onImportClick = { filePickerLauncher.launch("application/*") },
-                        onSave = { modelName, isDownloaded ->
+                        onSave = { modelPath, isDownloaded ->
+                            Log.d("SetupScreen", "onSave called with modelPath=$modelPath, isDownloaded=$isDownloaded")
+                            // Get model name from path or modelOptions for display
+                            val modelName = modelOptions.find { it.destination.absolutePath == modelPath }?.name
+                                ?: File(modelPath).name
                             viewModel.selectedFileName.value = modelName
                             loadedModel = Pair(modelName, isDownloaded)
                             isModelReady = true
                             showModelDialog = false
+                            // Set the model path in MainViewModel
+                            viewModel.setModelPath(modelPath)
                         },
                         modifier = Modifier
                             .fillMaxWidth(0.9f)
@@ -348,6 +355,16 @@ fun SetupScreen(
                     )
                 }
             }
+        }
+
+        // Display any import errors
+        viewModel.importError.value.takeIf { it.isNotEmpty() }?.let { error ->
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = error,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
         }
 
         Spacer(modifier = Modifier.height(100.dp))
@@ -359,10 +376,16 @@ fun SetupScreen(
             Button(
                 onClick = {
                     viewModel.savePrefs(prefs)
+                    with(prefs.edit()) {
+                        putBoolean("isFirstLaunch", false)
+                        apply()
+                    }
+                    Log.d("SetupScreen", "Set isFirstLaunch to false in SharedPreferences")
                     if (isFirstLaunch) {
                         navController.navigate("chat") {
                             popUpTo("setup") { inclusive = true }
                         }
+                        Log.d("SetupScreen", "Navigated to ChatScreen after saving model")
                     }
                 },
                 enabled = isModelReady,
@@ -378,5 +401,12 @@ fun SetupScreen(
                 Text("Done", fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         }
+    }
+
+    // Log SharedPreferences state after saving
+    LaunchedEffect(viewModel.modelPath.value) {
+        val prefsState = prefs.getString("modelPath", "") ?: ""
+        val isModelLoaded = prefs.getBoolean("isModelLoaded", false)
+        Log.d("SetupScreen", "SharedPrefs after save: modelPath=$prefsState, isModelLoaded=$isModelLoaded")
     }
 }

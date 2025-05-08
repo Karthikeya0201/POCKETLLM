@@ -21,6 +21,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -32,6 +33,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.llama.component.ModelImportCard
 import com.example.llama.component.ProgressComponent
 import com.example.llama.model.Downloadable
+import com.example.llama.ui.theme.Black
 import com.example.llama.ui.theme.PurplePrimary
 import com.example.llama.ui.theme.PurpleLight
 import com.example.llama.ui.theme.PurpleHeading
@@ -75,7 +77,7 @@ fun SettingsScreen(
                         } else null
                     } ?: uri.toString().substringAfterLast('/').takeIf { it.isNotEmpty() }
 
-                    if (fileName != null && fileName.endsWith(".gguf", ignoreCase = true)) {
+                       if (fileName != null && fileName.endsWith(".gguf", ignoreCase = true)) {
                         viewModel.setModelPath(uri.toString())
                         viewModel.savePrefs(prefs)
                         showModelDialog = false
@@ -98,34 +100,50 @@ fun SettingsScreen(
         composable("settings_main") {
             Scaffold(
                 topBar = {
-                    TopAppBar(
-                        title = {
-                            Text(
-                                "Settings",
-                                color = PurpleHeading,
-                                style = MaterialTheme.typography.titleLarge
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color = Color(0xFFFEF7FF),
+                                shape = RoundedCornerShape(bottomStart = 0.dp, bottomEnd = 0.dp)
                             )
-                        },
-                        navigationIcon = {
-                            IconButton(onClick = { navController.popBackStack() }) {
-                                Icon(
-                                    Icons.Filled.ArrowBack,
-                                    contentDescription = "Back",
-                                    tint = PurpleHeading
-                                )
-                            }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color.White
+                            .padding(vertical = 8.dp)
+                    ) {
+                        TopAppBar(
+                            title = {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "Settings",
+                                        color = Black,
+                                            style = MaterialTheme.typography.titleLarge,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            },
+                            navigationIcon = {
+                                IconButton(onClick = { navController.popBackStack() }) {
+                                    Icon(
+                                        Icons.Filled.ArrowBack,
+                                        contentDescription = "Back",
+                                        tint = PurpleHeading
+                                    )
+                                }
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = Color.Transparent
+                            )
                         )
-                    )
+                    }
                 }
             ) { padding ->
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding)
-                        .background(Color.White)
                         .padding(horizontal = 18.dp, vertical = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(32.dp)
                 ) {
@@ -319,81 +337,70 @@ fun SettingsScreen(
                         }
                     }
 
-                    // Model Import Popup
-                    if (showModelDialog) {
-                        Dialog(
-                            onDismissRequest = { showModelDialog = false },
-                            properties = DialogProperties(
-                                usePlatformDefaultWidth = false,
-                                dismissOnBackPress = true,
-                                dismissOnClickOutside = true
+                    // Save Changes Button
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Button(
+                            onClick = {
+                                viewModel.savePrefs(prefs)
+                                navController.popBackStack()
+                            },
+                            modifier = Modifier
+                                .width(180.dp)
+                                .height(40.dp),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = PurplePrimary
                             )
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.5f))
-                                    .padding(16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                ModelImportCard(
-                                    viewModel = viewModel,
-                                    downloadManager = downloadManager,
-                                    modelOptions = modelOptions,
-                                    onImportClick = { filePickerLauncher.launch("*/*") },
-                                    onSave = { path: String, success: Boolean ->
-                                        if (success) {
-                                            viewModel.setModelPath(path)
-                                            viewModel.savePrefs(prefs)
-                                            showModelDialog = false
-                                        } else {
-                                            viewModel.importError.value = "Failed to load model"
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.9f)
-                                        .wrapContentHeight()
-                                        .align(Alignment.Center)
-                                )
-                            }
+                            Text(
+                                "Save Changes",
+                                color = Color.White,
+                                style = MaterialTheme.typography.titleMedium
+                            )
                         }
                     }
+                }
 
-                    // Display import errors
-                    if (viewModel.importError.value.isNotEmpty()) {
-                        Text(
-                            text = viewModel.importError.value,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
-                    }
-
-                    // Global progress indicator (if needed)
-                    ProgressComponent(
-                        progress = 0f,
-                        isLoading = viewModel.isLoadingModel.value,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    // Save Changes Button
-                    Button(
-                        onClick = {
-                            viewModel.savePrefs(prefs)
-                            navController.popBackStack()
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = PurplePrimary
+                // Keep the dialog code
+                if (showModelDialog) {
+                    Dialog(
+                        onDismissRequest = { showModelDialog = false },
+                        properties = DialogProperties(
+                            usePlatformDefaultWidth = false,
+                            dismissOnBackPress = true,
+                            dismissOnClickOutside = true
                         )
                     ) {
-                        Text(
-                            "Save Changes",
-                            color = Color.White,
-                            style = MaterialTheme.typography.titleMedium
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.5f))
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            ModelImportCard(
+                                viewModel = viewModel,
+                                downloadManager = downloadManager,
+                                modelOptions = modelOptions,
+                                onImportClick = { filePickerLauncher.launch("*/*") },
+                                onSave = { path: String, success: Boolean ->
+                                    if (success) {
+                                        viewModel.setModelPath(path)
+                                        viewModel.savePrefs(prefs)
+                                        showModelDialog = false
+                                    } else {
+                                        viewModel.importError.value = "Failed to load model"
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth(0.9f)
+                                    .wrapContentHeight()
+                                    .align(Alignment.Center)
+                            )
+                        }
                     }
                 }
             }

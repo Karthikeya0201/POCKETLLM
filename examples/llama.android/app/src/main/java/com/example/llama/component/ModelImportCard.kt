@@ -3,6 +3,7 @@ package com.example.llama.component
 import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -44,6 +45,10 @@ private fun checkModelInLocalStorage(context: Context): Boolean {
     } ?: false
 }
 
+private fun getModelFileName(modelName: String): String {
+    return "${modelName.lowercase().replace(" ", "_")}.gguf"
+}
+
 @Composable
 fun ModelImportCard(
     viewModel: MainViewModel,
@@ -69,7 +74,7 @@ fun ModelImportCard(
 
     LaunchedEffect(Unit) {
         val existingModels = modelOptions.filter { model ->
-            File(context.filesDir, "${model.name.lowercase().replace(" ", "_")}.gguf").exists()
+            File(context.filesDir, getModelFileName(model.name)).exists()
         }.map { it.name }
         downloadedModels = downloadedModels + existingModels
 
@@ -83,6 +88,7 @@ fun ModelImportCard(
                 selectedModel = currentModel
             }
         }
+        Log.d("ModelImportCard", "Initialized: downloadedModels=$downloadedModels, importedModel=$importedModel, selectedModel=$selectedModel")
     }
 
     fun copySelectedFile() {
@@ -111,14 +117,23 @@ fun ModelImportCard(
                                     }
                                 }
                             }
-                        }
+                        } ?: throw Exception("Failed to open input stream for URI: $uri")
                     }
-                    importedModel = fileName
-                    selectedModel = fileName
+                    if (internalFile.exists()) {
+                        importedModel = fileName
+                        selectedModel = fileName
+                        Log.d("ModelImportCard", "File copied successfully: $fileName, path=${internalFile.absolutePath}")
+                    } else {
+                        viewModel.importError.value = "Failed to copy model file: $fileName"
+                        importedModel = null
+                        selectedModel = previousModelName
+                        Log.e("ModelImportCard", "File copy failed: $fileName")
+                    }
                 } catch (e: Exception) {
                     viewModel.importError.value = "Error copying file: ${e.message}"
                     importedModel = null
                     selectedModel = previousModelName
+                    Log.e("ModelImportCard", "File copy error: ${e.stackTraceToString()}")
                 } finally {
                     isCopying = false
                     copyingFileName = null
@@ -145,6 +160,7 @@ fun ModelImportCard(
                 viewModel.selectedFileName.value = previousModelName
                 selectedModel = previousModelName
                 importedModel = if (previousModelName != null && !downloadedModels.contains(previousModelName)) previousModelName else null
+                Log.d("ModelImportCard", "Cancelled copy, restored state: selectedModel=$selectedModel, importedModel=$importedModel")
             }
         }
     }
@@ -172,6 +188,7 @@ fun ModelImportCard(
     fun handleModelDownloadComplete(modelName: String) {
         downloadedModels = downloadedModels + modelName
         selectedModel = modelName
+        Log.d("ModelImportCard", "Download complete: $modelName, downloadedModels=$downloadedModels")
     }
 
     Card(
@@ -422,11 +439,20 @@ fun ModelImportCard(
             Button(
                 onClick = {
                     selectedModel?.let { modelName ->
-                        val modelPath = File(context.filesDir, modelName).absolutePath
-                        // Update viewModel state only when the user confirms the selection
-                        viewModel.selectedFileName.value = modelName
-                        viewModel.selectedUri.value = Uri.fromFile(File(modelPath))
-                        onSave(modelPath, downloadedModels.contains(modelName))
+                        val fileName = if (downloadedModels.contains(modelName)) {
+                            getModelFileName(modelName)
+                        } else {
+                            modelName // For imported models, the selectedModel is already the file name
+                        }
+                        val file = File(context.filesDir, fileName)
+                        Log.d("ModelImportCard", "Saving model: modelName=$modelName, fileName=$fileName, path=${file.absolutePath}, exists=${file.exists()}")
+                        if (file.exists()) {
+                            val absolutePath = file.absolutePath
+                            onSave(absolutePath, downloadedModels.contains(modelName))
+                        } else {
+                            viewModel.importError.value = "Selected model file does not exist: $fileName"
+                            Log.e("ModelImportCard", "Model file does not exist: $fileName")
+                        }
                     }
                 },
                 enabled = isModelLoaded && selectedModel != null && !isCopying,
@@ -469,7 +495,7 @@ private fun ModelOptionItem(
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
-        val modelFile = File(context.filesDir, "${model.name.lowercase().replace(" ", "_")}.gguf")
+        val modelFile = File(context.filesDir, getModelFileName(model.name))
         isDownloadComplete = modelFile.exists()
     }
 
@@ -486,7 +512,7 @@ private fun ModelOptionItem(
             isDownloading = false
             progress = 0f
             downloadId = null
-            val modelFile = File(context.filesDir, "${model.name.lowercase().replace(" ", "_")}.gguf")
+            val modelFile = File(context.filesDir, getModelFileName(model.name))
             modelFile.delete() // Clean up partial download
             viewModel.importError.value = "Download cancelled"
         }

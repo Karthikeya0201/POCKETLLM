@@ -4,8 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-
-
+import com.google.accompanist.systemuicontroller.rememberSystemUiController
 
 private val LightColorScheme = lightColorScheme(
     primary = Color(0xFF6200EE),
@@ -24,6 +23,20 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun LlamaAndroidTheme(content: @Composable () -> Unit) {
+    val systemUiController = rememberSystemUiController()
+
+    // Set the status bar to transparent
+    systemUiController.setStatusBarColor(
+        color = Color.Transparent,
+        darkIcons = true // Use dark icons for visibility on a transparent (likely light) background
+    )
+
+    // Optionally, set the navigation bar to transparent as well
+    systemUiController.setNavigationBarColor(
+        color = Color.Transparent,
+        darkIcons = true
+    )
+
     MaterialTheme(
         colorScheme = LightColorScheme,
         typography = Typography,
