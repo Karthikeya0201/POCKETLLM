@@ -229,7 +229,7 @@ fun SetupScreen(
                                             "Orca Mini-3B" -> R.drawable.ic_orca_icon
                                             "Gemma 3-4B" -> R.drawable.ic_gemma_icon
                                             "Mistral-7B" -> R.drawable.ic_mistral_icon
-                                            else -> R.drawable.ic_ai_chip
+                                            else -> R.drawable.ic_ai_chip_import_model
                                         }
                                     ),
                                     contentDescription = "Model Icon",
