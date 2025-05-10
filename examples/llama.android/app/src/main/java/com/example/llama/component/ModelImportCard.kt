@@ -37,6 +37,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 
 private fun checkModelInLocalStorage(context: Context): Boolean {
     val filesDir = context.filesDir
@@ -63,44 +64,52 @@ fun ModelImportCard(
     var isCopying by remember { mutableStateOf(false) }
     var copyingFileName by remember { mutableStateOf<String?>(null) }
     var copyProgress by remember { mutableStateOf(0f) }
-    var downloadedModels by remember { mutableStateOf(setOf<String>()) }
     var importedModel by remember { mutableStateOf<String?>(null) }
     var copyJob by remember { mutableStateOf<Job?>(null) }
     var selectedModel by remember { mutableStateOf<String?>(null) }
+    var hasUserSelectedModel by remember { mutableStateOf(false) }
+    var showImportSuccess by remember { mutableStateOf(false) }
 
-    // Track the previous model to restore if the user cancels
     val previousModelName by remember { mutableStateOf(viewModel.selectedFileName.value) }
     val previousUri by remember { mutableStateOf(viewModel.selectedUri.value) }
 
     LaunchedEffect(Unit) {
-        val existingModels = modelOptions.filter { model ->
-            File(context.filesDir, getModelFileName(model.name)).exists()
-        }.map { it.name }
-        downloadedModels = downloadedModels + existingModels
-
-        // If a model is already loaded, pre-select it
         val currentModel = viewModel.selectedFileName.value
-        if (currentModel != null) {
-            if (downloadedModels.contains(currentModel)) {
-                selectedModel = currentModel
-            } else if (File(context.filesDir, currentModel).exists()) {
+        if (currentModel != null && File(context.filesDir, currentModel).exists()) {
+            if (!viewModel.downloadedModels.value.contains(currentModel)) {
                 importedModel = currentModel
-                selectedModel = currentModel
             }
         }
-        Log.d("ModelImportCard", "Initialized: downloadedModels=$downloadedModels, importedModel=$importedModel, selectedModel=$selectedModel")
+        Log.d("ModelImportCard", "Initialized: downloadedModels=${viewModel.downloadedModels.value}, importedModel=$importedModel, selectedModel=$selectedModel")
+    }
+
+    val undownloadedModels by remember(viewModel.downloadedModels) {
+        derivedStateOf {
+            modelOptions.filter { !viewModel.downloadedModels.value.contains(it.name) }
+        }
     }
 
     fun copySelectedFile() {
         viewModel.selectedUri.value?.let { uri ->
             val fileName = viewModel.selectedFileName.value ?: return@let
+            val internalFile = File(context.filesDir, fileName)
+
+            if (internalFile.exists()) {
+                Log.d("ModelImportCard", "File already exists: $fileName, skipping copy")
+                importedModel = fileName
+                selectedModel = fileName
+                hasUserSelectedModel = true
+                viewModel.selectedUri.value = null
+                showImportSuccess = true
+                return@let
+            }
+
             val job = scope.launch {
                 try {
                     isCopying = true
                     copyingFileName = fileName
                     copyProgress = 0f
                     val fileSize = context.contentResolver.openFileDescriptor(uri, "r")?.statSize ?: 0L
-                    val internalFile = File(context.filesDir, fileName)
                     withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.use { inputStream ->
                             FileOutputStream(internalFile).use { outputStream ->
@@ -122,17 +131,21 @@ fun ModelImportCard(
                     if (internalFile.exists()) {
                         importedModel = fileName
                         selectedModel = fileName
-                        Log.d("ModelImportCard", "File copied successfully: $fileName, path=${internalFile.absolutePath}")
+                        hasUserSelectedModel = true
+                        Log.d("ModelImportCard", "File copied successfully: $fileName, path=${internalFile.absolutePath}, size=${internalFile.length()} bytes")
+                        showImportSuccess = true
                     } else {
                         viewModel.importError.value = "Failed to copy model file: $fileName"
                         importedModel = null
                         selectedModel = previousModelName
+                        hasUserSelectedModel = false
                         Log.e("ModelImportCard", "File copy failed: $fileName")
                     }
                 } catch (e: Exception) {
                     viewModel.importError.value = "Error copying file: ${e.message}"
                     importedModel = null
                     selectedModel = previousModelName
+                    hasUserSelectedModel = false
                     Log.e("ModelImportCard", "File copy error: ${e.stackTraceToString()}")
                 } finally {
                     isCopying = false
@@ -149,27 +162,27 @@ fun ModelImportCard(
         copyJob?.let { job ->
             scope.launch {
                 job.cancelAndJoin()
-                File(context.filesDir, copyingFileName ?: "").delete() // Clean up partial file
+                File(context.filesDir, copyingFileName ?: "").delete()
                 isCopying = false
                 copyingFileName = null
                 copyProgress = 0f
                 copyJob = null
                 viewModel.importError.value = "Import cancelled"
-                // Restore the previous model state
                 viewModel.selectedUri.value = previousUri
                 viewModel.selectedFileName.value = previousModelName
                 selectedModel = previousModelName
-                importedModel = if (previousModelName != null && !downloadedModels.contains(previousModelName)) previousModelName else null
+                hasUserSelectedModel = false
+                importedModel = if (previousModelName != null && !viewModel.downloadedModels.value.contains(previousModelName)) previousModelName else null
                 Log.d("ModelImportCard", "Cancelled copy, restored state: selectedModel=$selectedModel, importedModel=$importedModel")
             }
         }
     }
 
-    val isModelLoaded by remember {
+    val isModelLoaded by remember(viewModel.downloadedModels) {
         derivedStateOf {
             when {
                 importedModel != null && File(context.filesDir, importedModel).exists() -> true
-                downloadedModels.isNotEmpty() -> true
+                viewModel.downloadedModels.value.isNotEmpty() -> true
                 else -> false
             }
         }
@@ -185,10 +198,18 @@ fun ModelImportCard(
         }
     }
 
+    LaunchedEffect(showImportSuccess) {
+        if (showImportSuccess) {
+            delay(3000L)
+            showImportSuccess = false
+        }
+    }
+
     fun handleModelDownloadComplete(modelName: String) {
-        downloadedModels = downloadedModels + modelName
+        viewModel.addDownloadedModel(modelName)
         selectedModel = modelName
-        Log.d("ModelImportCard", "Download complete: $modelName, downloadedModels=$downloadedModels")
+        hasUserSelectedModel = true
+        Log.d("ModelImportCard", "Download complete: $modelName, downloadedModels=${viewModel.downloadedModels.value}")
     }
 
     Card(
@@ -218,91 +239,33 @@ fun ModelImportCard(
             )
             Spacer(modifier = Modifier.height(32.dp))
 
-            modelOptions.forEachIndexed { index, model ->
-                ModelOptionItem(
-                    model = model,
-                    viewModel = viewModel,
-                    downloadManager = downloadManager,
-                    onDownloadStart = { /* No longer needed */ },
-                    onProgressUpdate = { /* Track progress if needed */ },
-                    onDownloadComplete = { handleModelDownloadComplete(model.name) },
-                    isLastItem = index == modelOptions.lastIndex,
-                    isSelected = selectedModel == model.name,
-                    onSelect = { selectedModel = model.name }
+            if (undownloadedModels.isNotEmpty()) {
+                undownloadedModels.forEachIndexed { index, model ->
+                    ModelOptionItem(
+                        model = model,
+                        viewModel = viewModel,
+                        downloadManager = downloadManager,
+                        onDownloadStart = { /* No longer needed */ },
+                        onProgressUpdate = { /* Track progress if needed */ },
+                        onDownloadComplete = { handleModelDownloadComplete(model.name) },
+                        isLastItem = index == undownloadedModels.lastIndex,
+                        isSelected = selectedModel == model.name,
+                        onSelect = {
+                            selectedModel = model.name
+                            hasUserSelectedModel = true
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+                Text(
+                    text = "or",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color(0xFF1C1B1F).copy(alpha = 0.6f),
+                    modifier = Modifier.padding(vertical = 16.dp)
                 )
-                Spacer(modifier = Modifier.height(16.dp))
             }
 
-            Text(
-                text = "or",
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color(0xFF1C1B1F).copy(alpha = 0.6f),
-                modifier = Modifier.padding(vertical = 16.dp)
-            )
-
-            if (importedModel != null) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(72.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    border = BorderStroke(1.dp, Color(0xFFD9BDFE))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                shape = CircleShape,
-                                color = Color(0xFFD9BDFE),
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.ic_ai_chip_import_model),
-                                    contentDescription = "Model Loaded",
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(8.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column {
-                                Text(
-                                    text = "Model Loaded",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = Color(0xFF1C1B1F)
-                                )
-                                Text(
-                                    text = importedModel ?: "",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFF1C1B1F).copy(alpha = 0.6f)
-                                )
-                            }
-                        }
-                        Checkbox(
-                            checked = selectedModel == importedModel,
-                            onCheckedChange = { isChecked ->
-                                if (isChecked) {
-                                    selectedModel = importedModel
-                                } else {
-                                    selectedModel = null
-                                }
-                            },
-                            colors = CheckboxDefaults.colors(
-                                checkedColor = PurplePrimary,
-                                uncheckedColor = Color(0xFF1C1B1F).copy(alpha = 0.6f),
-                                checkmarkColor = Color.White
-                            ),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-            } else if (isCopying && copyingFileName != null) {
+            if (isCopying && copyingFileName != null) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -368,6 +331,50 @@ fun ModelImportCard(
                                 contentDescription = "Cancel Import",
                                 tint = PurplePrimary,
                                 modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+            } else if (showImportSuccess) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(80.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, Color.Green.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.Green.copy(alpha = 0.1f),
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_check),
+                                contentDescription = "Success",
+                                tint = Color.Green,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(8.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Model Successfully Imported",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color(0xFF1C1B1F)
+                            )
+                            Text(
+                                text = importedModel ?: "",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF1C1B1F).copy(alpha = 0.6f)
                             )
                         }
                     }
@@ -439,23 +446,24 @@ fun ModelImportCard(
             Button(
                 onClick = {
                     selectedModel?.let { modelName ->
-                        val fileName = if (downloadedModels.contains(modelName)) {
+                        val fileName = if (viewModel.downloadedModels.value.contains(modelName)) {
                             getModelFileName(modelName)
                         } else {
-                            modelName // For imported models, the selectedModel is already the file name
+                            modelName
                         }
                         val file = File(context.filesDir, fileName)
-                        Log.d("ModelImportCard", "Saving model: modelName=$modelName, fileName=$fileName, path=${file.absolutePath}, exists=${file.exists()}")
+                        Log.d("ModelImportCard", "Saving model: modelName=$modelName, fileName=$fileName, path=${file.absolutePath}, exists=${file.exists()}, size=${file.length()} bytes")
                         if (file.exists()) {
                             val absolutePath = file.absolutePath
-                            onSave(absolutePath, downloadedModels.contains(modelName))
+                            onSave(absolutePath, viewModel.downloadedModels.value.contains(modelName))
+                            showImportSuccess = false
                         } else {
                             viewModel.importError.value = "Selected model file does not exist: $fileName"
                             Log.e("ModelImportCard", "Model file does not exist: $fileName")
                         }
                     }
                 },
-                enabled = isModelLoaded && selectedModel != null && !isCopying,
+                enabled = hasUserSelectedModel && !isCopying,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
@@ -467,7 +475,7 @@ fun ModelImportCard(
             ) {
                 Text(
                     "Done",
-                    color = if (isModelLoaded && selectedModel != null && !isCopying) Color.White else Color.Gray,
+                    color = if (hasUserSelectedModel && !isCopying) Color.White else Color.Gray,
                     style = MaterialTheme.typography.titleMedium
                 )
             }
@@ -489,21 +497,62 @@ private fun ModelOptionItem(
 ) {
     var progress by remember { mutableStateOf(0f) }
     var isDownloading by remember { mutableStateOf(false) }
-    var isDownloadComplete by remember { mutableStateOf(false) }
+    val isDownloadComplete by remember(viewModel.downloadedModels) {
+        derivedStateOf {
+            val complete = viewModel.downloadedModels.value.contains(model.name)
+            Log.d("ModelOptionItem", "isDownloadComplete for ${model.name}: $complete, downloadedModels=${viewModel.downloadedModels.value}")
+            complete
+        }
+    }
     var downloadId by remember { mutableStateOf<Long?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
-        val modelFile = File(context.filesDir, getModelFileName(model.name))
-        isDownloadComplete = modelFile.exists()
+    LaunchedEffect(isDownloadComplete) {
+        Log.d("ModelOptionItem", "isDownloadComplete for ${model.name}: $isDownloadComplete")
     }
 
-    fun handleSuccessfulDownload() {
-        isDownloading = false
-        isDownloadComplete = true
-        downloadId = null
-        onDownloadComplete()
+    fun handleSuccessfulDownload(downloadedFileUri: Uri?) {
+        scope.launch {
+            try {
+                val targetFile = File(context.filesDir, getModelFileName(model.name))
+                var totalBytesCopied = 0L
+                if (downloadedFileUri != null) {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(downloadedFileUri)?.use { inputStream ->
+                            FileOutputStream(targetFile).use { outputStream ->
+                                val buffer = ByteArray(8192)
+                                var bytesRead: Int
+                                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                    outputStream.write(buffer, 0, bytesRead)
+                                    totalBytesCopied += bytesRead
+                                }
+                            }
+                        } ?: throw Exception("Failed to open input stream for downloaded file")
+                    }
+                    if (targetFile.exists() && totalBytesCopied > 0) {
+                        Log.d("ModelOptionItem", "File copied to private storage: ${targetFile.absolutePath}, exists=${targetFile.exists()}, size=$totalBytesCopied bytes")
+                    } else {
+                        throw Exception("File copy resulted in an empty file: ${targetFile.absolutePath}")
+                    }
+                } else {
+                    throw Exception("Downloaded file URI is null")
+                }
+                isDownloading = false
+                downloadId = null
+                onDownloadComplete()
+            } catch (e: Exception) {
+                viewModel.importError.value = "Error copying downloaded file: ${e.message}"
+                Log.e("ModelOptionItem", "File copy error: ${e.stackTraceToString()}")
+                isDownloading = false
+                downloadId = null
+                // Clean up if the copy failed
+                val targetFile = File(context.filesDir, getModelFileName(model.name))
+                if (targetFile.exists()) {
+                    targetFile.delete()
+                }
+            }
+        }
     }
 
     fun cancelDownload() {
@@ -513,7 +562,9 @@ private fun ModelOptionItem(
             progress = 0f
             downloadId = null
             val modelFile = File(context.filesDir, getModelFileName(model.name))
-            modelFile.delete() // Clean up partial download
+            modelFile.delete()
+            val tempFile = File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), getModelFileName(model.name))
+            tempFile.delete()
             viewModel.importError.value = "Download cancelled"
         }
     }
@@ -609,15 +660,81 @@ private fun ModelOptionItem(
                     onClick = {
                         isDownloading = true
                         onDownloadStart()
-                        downloadId = model.download(
-                            viewModel = viewModel,
-                            downloadManager = downloadManager,
-                            scope = scope
-                        ) { currentProgress ->
-                            progress = currentProgress
-                            onProgressUpdate(currentProgress)
-                            if (currentProgress >= 1f) {
-                                handleSuccessfulDownload()
+                        scope.launch {
+                            val request = DownloadManager.Request(model.source).apply {
+                                setTitle("Downloading ${model.name}")
+                                setDescription("Downloading AI model ${model.name}")
+                                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                setDestinationInExternalFilesDir(context, android.os.Environment.DIRECTORY_DOWNLOADS, getModelFileName(model.name))
+                            }
+                            downloadId = downloadManager.enqueue(request)
+
+                            var isDownloadingLocal = true
+                            var totalBytes = 0L
+                            while (isDownloadingLocal) {
+                                val query = DownloadManager.Query().setFilterById(downloadId ?: return@launch)
+                                downloadManager.query(query)?.use { cursor ->
+                                    if (cursor.moveToFirst()) {
+                                        val bytesDownloadedIndex = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+                                        val bytesTotalIndex = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+                                        val statusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                                        val localUriIndex = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
+
+                                        if (bytesDownloadedIndex >= 0 && bytesTotalIndex >= 0) {
+                                            val bytesDownloaded = cursor.getLong(bytesDownloadedIndex)
+                                            totalBytes = cursor.getLong(bytesTotalIndex)
+                                            if (totalBytes > 0) {
+                                                progress = bytesDownloaded.toFloat() / totalBytes
+                                                onProgressUpdate(progress)
+                                            }
+                                        } else {
+                                            Log.e("ModelOptionItem", "Missing columns for progress: bytesDownloadedIndex=$bytesDownloadedIndex, bytesTotalIndex=$bytesTotalIndex")
+                                        }
+
+                                        if (statusIndex >= 0) {
+                                            val status = cursor.getInt(statusIndex)
+                                            if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                                                if (localUriIndex >= 0) {
+                                                    val downloadedUri = Uri.parse(cursor.getString(localUriIndex))
+                                                    Log.d("ModelOptionItem", "Download successful, URI: $downloadedUri, totalBytes=$totalBytes")
+                                                    handleSuccessfulDownload(downloadedUri)
+                                                    isDownloadingLocal = false
+                                                } else {
+                                                    Log.e("ModelOptionItem", "Missing COLUMN_LOCAL_URI column, cannot retrieve downloaded file URI")
+                                                    viewModel.importError.value = "Download completed but failed to retrieve file URI for ${model.name}"
+                                                    isDownloading = false
+                                                    downloadId = null
+                                                    isDownloadingLocal = false
+                                                }
+                                            } else if (status == DownloadManager.STATUS_FAILED) {
+                                                viewModel.importError.value = "Download failed for ${model.name}"
+                                                Log.e("ModelOptionItem", "Download failed for ${model.name}")
+                                                isDownloading = false
+                                                downloadId = null
+                                                isDownloadingLocal = false
+                                            }
+                                        } else {
+                                            Log.e("ModelOptionItem", "Missing COLUMN_STATUS column, cannot determine download status")
+                                            viewModel.importError.value = "Failed to determine download status for ${model.name}"
+                                            isDownloading = false
+                                            downloadId = null
+                                            isDownloadingLocal = false
+                                        }
+                                    } else {
+                                        Log.e("ModelOptionItem", "Download ID ${downloadId} not found in DownloadManager")
+                                        viewModel.importError.value = "Download ID not found for ${model.name}"
+                                        isDownloading = false
+                                        downloadId = null
+                                        isDownloadingLocal = false
+                                    }
+                                } ?: run {
+                                    Log.e("ModelOptionItem", "DownloadManager query returned null for download ID ${downloadId}")
+                                    viewModel.importError.value = "Failed to query download status for ${model.name}"
+                                    isDownloading = false
+                                    downloadId = null
+                                    isDownloadingLocal = false
+                                }
+                                delay(500L)
                             }
                         }
                     },

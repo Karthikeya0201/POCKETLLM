@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
         } else {
             viewModel.log("MANAGE_EXTERNAL_STORAGE denied")
             Log.w("MainActivity", "MANAGE_EXTERNAL_STORAGE denied")
-            openAppSettings() // Guide user to enable manually
+            openAppSettings()
         }
     }
 
@@ -118,7 +118,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Check and request RECORD_AUDIO permission
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Log.d("MainActivity", "Requesting RECORD_AUDIO permission")
             audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -240,7 +239,6 @@ fun AppNavigation(
     val isModelLoaded by viewModel.isModelLoaded
     val isFirstLaunch = prefs.getBoolean("isFirstLaunch", true)
 
-    // Determine start destination based on both isFirstLaunch and isModelLoaded
     val startDestination = when {
         isFirstLaunch -> {
             Log.d("MainActivity", "Starting at setup screen due to first launch")
@@ -271,12 +269,12 @@ fun AppNavigation(
             )
         }
         composable("chat") {
-            // Double-check isModelLoaded before rendering ChatScreen
             if (isModelLoaded) {
                 ChatScreen(
                     navController = navController,
                     viewModel = viewModel,
                     clipboardManager = clipboardManager,
+                    modelOptions = models, // Pass the models list here
                     requestPermissions = requestPermissions
                 )
             } else {

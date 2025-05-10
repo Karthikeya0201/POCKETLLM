@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -37,14 +38,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.example.llama.component.ChatHistoryDrawer
+import com.example.llama.component.ModelSelectionDialog
+import com.example.llama.model.Downloadable
+import com.example.llama.ui.theme.PurplePrimary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.TileMode
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +58,7 @@ fun ChatScreen(
     navController: NavHostController,
     viewModel: MainViewModel,
     clipboardManager: ClipboardManager,
+    modelOptions: List<Downloadable>,
     requestPermissions: (Array<String>) -> Unit = {}
 ) {
     val scrollState = rememberLazyListState()
@@ -61,6 +68,7 @@ fun ChatScreen(
     val focusManager = LocalFocusManager.current
     val currentDate = SimpleDateFormat("MMM dd, yyyy").format(Date())
     var isLoadingChat by remember { mutableStateOf(false) }
+    var showModelDialog by remember { mutableStateOf(false) }
 
     val infiniteTransition = rememberInfiniteTransition()
     val dotOffset by infiniteTransition.animateFloat(
@@ -78,6 +86,18 @@ fun ChatScreen(
             val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.get(0)
             spokenText?.let {
                 viewModel.message.value = it
+            }
+        }
+    }
+
+    // Determine the loaded model
+    val loadedModel by remember(viewModel.selectedFileName.value) {
+        derivedStateOf {
+            val modelName = viewModel.selectedFileName.value
+            if (modelName.isNullOrEmpty()) null
+            else {
+                val isDownloaded = modelOptions.any { it.name == modelName }
+                Pair(modelName, isDownloaded)
             }
         }
     }
@@ -173,12 +193,12 @@ fun ChatScreen(
                                 Icons.Filled.Menu,
                                 contentDescription = "Open Chat Drawer",
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(30.dp) // Adjusted to 30.dp
+                                modifier = Modifier.size(30.dp)
                             )
                         }
                     },
                     title = {
-                        Box(
+                        Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
                                 .border(
@@ -190,15 +210,52 @@ fun ChatScreen(
                                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
                                     shape = RoundedCornerShape(12.dp)
                                 )
-                                .padding(4.dp),
-                            contentAlignment = Alignment.Center
+                                .clickable { showModelDialog = true }
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
                         ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.logo),
-                                contentDescription = "Pocket LLM Logo",
-                                modifier = Modifier
-                                    .height(40.dp)
-                                    .padding(4.dp)
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFD9BDFE),
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                if (loadedModel != null) {
+                                    Image(
+                                        painter = painterResource(
+                                            id = if (loadedModel!!.second) {
+                                                when (loadedModel!!.first) {
+                                                    "Orca Mini-3B" -> R.drawable.ic_orca_icon
+                                                    "Gemma 3-4B" -> R.drawable.ic_gemma_icon
+                                                    "Mistral-7B" -> R.drawable.ic_mistral_icon
+                                                    else -> R.drawable.ic_ai_chip
+                                                }
+                                            } else {
+                                                R.drawable.ic_ai_chip
+                                            }
+                                        ),
+                                        contentDescription = "Loaded Model",
+                                        modifier = Modifier
+                                            .padding(6.dp)
+                                            .fillMaxSize()
+                                    )
+                                } else {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_ai_chip),
+                                        contentDescription = "Choose Model",
+                                        tint = PurplePrimary,
+                                        modifier = Modifier
+                                            .padding(6.dp)
+                                            .fillMaxSize()
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = loadedModel?.first ?: "Choose a Model",
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                style = MaterialTheme.typography.titleMedium,
+                                textAlign = TextAlign.Center
                             )
                         }
                     },
@@ -219,7 +276,7 @@ fun ChatScreen(
                                 Icons.Filled.Chat,
                                 contentDescription = "New Chat",
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(30.dp) // Adjusted to 30.dp
+                                modifier = Modifier.size(30.dp)
                             )
                         }
                     }
@@ -357,7 +414,7 @@ fun ChatScreen(
                             Icons.Filled.Mic,
                             contentDescription = "Voice Input",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(30.dp) // Increased to 30.dp
+                            modifier = Modifier.size(30.dp)
                         )
                     }
 
@@ -369,7 +426,7 @@ fun ChatScreen(
                             Icon(
                                 Icons.Filled.Pause,
                                 contentDescription = "Pause",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer, // Changed for consistency
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
                                 modifier = Modifier.size(30.dp)
                             )
                         }
@@ -387,7 +444,7 @@ fun ChatScreen(
                                 Icons.Filled.ArrowUpward,
                                 contentDescription = "Send",
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(30.dp) // Increased to 30.dp
+                                modifier = Modifier.size(30.dp)
                             )
                         }
                     } else {
@@ -399,12 +456,30 @@ fun ChatScreen(
                                 Icons.Filled.GraphicEq,
                                 contentDescription = "Talk with AI",
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(30.dp) // Increased to 30.dp
+                                modifier = Modifier.size(30.dp)
                             )
                         }
                     }
                 }
             }
         }
+    }
+
+    // Model selection dialog
+    if (showModelDialog) {
+        ModelSelectionDialog(
+            viewModel = viewModel,
+            modelOptions = modelOptions,
+            onDismiss = { showModelDialog = false },
+            onModelSelected = { path, isDownloaded ->
+                viewModel.setModelPath(path)
+                val modelName = if (isDownloaded) {
+                    modelOptions.find { "${it.name.lowercase().replace(" ", "_")}.gguf" == File(path).name }?.name
+                } else {
+                    File(path).name.removeSuffix(".gguf")
+                }
+                viewModel.selectedFileName.value = modelName ?: File(path).name.removeSuffix(".gguf")
+            }
+        )
     }
 }

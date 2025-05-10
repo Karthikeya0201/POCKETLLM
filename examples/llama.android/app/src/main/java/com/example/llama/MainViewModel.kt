@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
@@ -47,6 +48,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
     private val _isModelLoaded = mutableStateOf(false)
     val isModelLoaded: State<Boolean> = _isModelLoaded
 
+    // Add downloadedModels property
+    private val _downloadedModels: MutableState<Set<String>> = mutableStateOf(emptySet())
+    val downloadedModels: State<Set<String>> = _downloadedModels
+
     init {
         loadPrefs(sharedPrefs)
     }
@@ -68,13 +73,20 @@ class MainViewModel(private val context: Context) : ViewModel() {
         userName.value = prefs.getString("userName", "") ?: ""
         assistantName.value = prefs.getString("assistantName", "") ?: ""
         modelPath.value = prefs.getString("modelPath", "") ?: ""
+        // Load downloadedModels from SharedPreferences
+        val downloadedModelsJson = prefs.getString("downloadedModels", null)
+        _downloadedModels.value = if (downloadedModelsJson != null) {
+            Json.decodeFromString(downloadedModelsJson)
+        } else {
+            emptySet()
+        }
         chatsDir = File(context.filesDir, "chat_histories").apply {
             mkdirs()
             Log.d("MainViewModel", "Initialized chatsDir: $absolutePath")
         }
         loadChatHistories()
         llama.initialize(userName.value, assistantName.value)
-        Log.d("MainViewModel", "Loaded preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}")
+        Log.d("MainViewModel", "Loaded preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, downloadedModels=${_downloadedModels.value}")
 
         // Initialize selectedUri and selectedFileName based on modelPath
         if (modelPath.value.isNotEmpty()) {
@@ -142,9 +154,11 @@ class MainViewModel(private val context: Context) : ViewModel() {
             putString("modelPath", modelPath.value)
             putBoolean("isFirstLaunch", false)
             putString("historyDir", chatsDir.parent ?: context.filesDir.absolutePath)
+            // Save downloadedModels to SharedPreferences
+            putString("downloadedModels", Json.encodeToString(_downloadedModels.value))
             apply()
         }
-        Log.d("MainViewModel", "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}")
+        Log.d("MainViewModel", "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, downloadedModels=${_downloadedModels.value}")
         llama.initialize(userName.value, assistantName.value)
     }
 
@@ -336,6 +350,13 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 isLoadingModel.value = false
             }
         }
+    }
+
+    // Add method to update downloadedModels
+    fun addDownloadedModel(modelName: String) {
+        _downloadedModels.value = _downloadedModels.value + modelName
+        savePrefs(sharedPrefs) // Persist the updated list
+        Log.d("MainViewModel", "Added downloaded model: $modelName, total: ${_downloadedModels.value}")
     }
 
     fun startNewChat() {

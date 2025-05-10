@@ -31,12 +31,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.llama.component.ModelImportCard
-import com.example.llama.component.ProgressComponent
 import com.example.llama.model.Downloadable
 import com.example.llama.ui.theme.Black
 import com.example.llama.ui.theme.PurplePrimary
 import com.example.llama.ui.theme.PurpleLight
 import com.example.llama.ui.theme.PurpleHeading
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,10 +77,10 @@ fun SettingsScreen(
                         } else null
                     } ?: uri.toString().substringAfterLast('/').takeIf { it.isNotEmpty() }
 
-                       if (fileName != null && fileName.endsWith(".gguf", ignoreCase = true)) {
-                        viewModel.setModelPath(uri.toString())
-                        viewModel.savePrefs(prefs)
-                        showModelDialog = false
+                    if (fileName != null && fileName.endsWith(".gguf", ignoreCase = true)) {
+                        viewModel.selectedUri.value = uri
+                        viewModel.selectedFileName.value = fileName
+                        // Copying will be handled in ModelImportCard
                     } else {
                         viewModel.importError.value = "Please select a .gguf file"
                     }
@@ -118,7 +118,7 @@ fun SettingsScreen(
                                     Text(
                                         "Settings",
                                         color = Black,
-                                            style = MaterialTheme.typography.titleLarge,
+                                        style = MaterialTheme.typography.titleLarge,
                                         modifier = Modifier.fillMaxWidth(),
                                         textAlign = TextAlign.Center
                                     )
@@ -272,7 +272,7 @@ fun SettingsScreen(
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column {
                                         Text(
-                                            text = "Model Loaded",
+                                            text = "Loaded Model",
                                             style = MaterialTheme.typography.titleMedium,
                                             color = Color(0xFF1C1B1F)
                                         )
@@ -285,7 +285,7 @@ fun SettingsScreen(
                                 }
                                 Icon(
                                     imageVector = Icons.Default.ArrowForward,
-                                    contentDescription = "Manage Model",
+                                    contentDescription = "Change Model",
                                     tint = PurplePrimary,
                                     modifier = Modifier.size(24.dp)
                                 )
@@ -337,6 +337,15 @@ fun SettingsScreen(
                         }
                     }
 
+                    // Display any import errors
+                    viewModel.importError.value?.takeIf { it.isNotEmpty() }?.let { error ->
+                        Text(
+                            text = error,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
+
                     // Save Changes Button
                     Box(
                         modifier = Modifier.fillMaxWidth(),
@@ -364,7 +373,7 @@ fun SettingsScreen(
                     }
                 }
 
-                // Keep the dialog code
+                // Model selection dialog
                 if (showModelDialog) {
                     Dialog(
                         onDismissRequest = { showModelDialog = false },
@@ -386,14 +395,22 @@ fun SettingsScreen(
                                 downloadManager = downloadManager,
                                 modelOptions = modelOptions,
                                 onImportClick = { filePickerLauncher.launch("*/*") },
-                                onSave = { path: String, success: Boolean ->
-                                    if (success) {
-                                        viewModel.setModelPath(path)
-                                        viewModel.savePrefs(prefs)
-                                        showModelDialog = false
+                                onSave = { path, isDownloaded ->
+                                    // Update the MainViewModel with the new model path
+                                    viewModel.setModelPath(path)
+                                    // Update the selected file name based on whether it's a downloaded or imported model
+                                    viewModel.selectedFileName.value = if (isDownloaded) {
+                                        modelOptions.find { "${it.name.lowercase().replace(" ", "_")}.gguf" == File(path).name }?.name
+                                            ?: File(path).name.removeSuffix(".gguf")
                                     } else {
-                                        viewModel.importError.value = "Failed to load model"
+                                        File(path).name.removeSuffix(".gguf")
                                     }
+                                    // Mark the model as loaded
+                                    viewModel.setModelLoaded(true)
+                                    // Save preferences to persist the model selection
+                                    viewModel.savePrefs(prefs)
+                                    // Close the dialog
+                                    showModelDialog = false
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth(0.9f)
