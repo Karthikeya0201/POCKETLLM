@@ -239,7 +239,7 @@ fun SetupScreen(
                                 )
                             } else {
                                 Image(
-                                    painter = painterResource(id = R.drawable.ic_ai_chip),
+                                    painter = painterResource(id = R.drawable.ic_ai_chip_import_model),
                                     contentDescription = "AI Chip",
                                     modifier = Modifier
                                         .padding(8.dp)

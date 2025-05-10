@@ -740,11 +740,20 @@ private fun ModelOptionItem(
                     },
                     modifier = Modifier.size(24.dp)
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_download),
-                        contentDescription = "Download",
-                        tint = PurplePrimary
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = PurplePrimary,
+                        modifier = Modifier.size(20.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_download),
+                            contentDescription = "Upload",
+                            tint = Color.White,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .padding(2.dp)
+                        )
+                    }
                 }
             }
         }
