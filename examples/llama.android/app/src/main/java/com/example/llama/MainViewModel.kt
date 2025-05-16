@@ -14,7 +14,6 @@ import com.example.llama.model.ChatHistory
 import android.llama.cpp.LLamaAndroid
 import androidx.compose.runtime.State
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +36,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
     val importError = mutableStateOf("")
     val isLoadingModel = mutableStateOf(false)
     val isGenerating = mutableStateOf(false)
+    val showImportSuccess = mutableStateOf(false) // Added state for import success
     private lateinit var chatsDir: File
     private val llama = LLamaAndroid.instance().apply {
         setContextSize(8192)
@@ -50,8 +50,8 @@ class MainViewModel(private val context: Context) : ViewModel() {
     private val _isModelLoaded = mutableStateOf(false)
     val isModelLoaded: State<Boolean> = _isModelLoaded
 
-    private val _downloadedModels: MutableState<Set<String>> = mutableStateOf(emptySet())
-    val downloadedModels: State<Set<String>> = _downloadedModels
+    private val _downloadedModels: MutableState<List<String>> = mutableStateOf(emptyList()) // Changed to List<String>
+    val downloadedModels: State<List<String>> = _downloadedModels
 
     private val _isInitialized = mutableStateOf(false)
     val isInitialized: State<Boolean> get() = _isInitialized
@@ -88,6 +88,15 @@ class MainViewModel(private val context: Context) : ViewModel() {
         return "${modelName.lowercase().replace(" ", "_")}.gguf"
     }
 
+    fun getModelDisplayName(fileName: String): String {
+        // Remove .gguf suffix and handle naming conventions
+        return fileName.removeSuffix(".gguf").replace("-", " ").let { name ->
+            name.split(" ").joinToString(" ") { word ->
+                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+            }
+        }
+    }
+
     suspend fun loadPrefs(prefs: SharedPreferences) {
         userName.value = prefs.getString("userName", "") ?: ""
         assistantName.value = prefs.getString("assistantName", "") ?: ""
@@ -96,9 +105,9 @@ class MainViewModel(private val context: Context) : ViewModel() {
         _isFirstLaunch.value = prefs.getBoolean("isFirstLaunch", true)
         val downloadedModelsJson = prefs.getString("downloadedModels", null)
         _downloadedModels.value = if (downloadedModelsJson != null) {
-            Json.decodeFromString(downloadedModelsJson)
+            Json.decodeFromString<List<String>>(downloadedModelsJson)
         } else {
-            emptySet()
+            emptyList()
         }
         chatsDir = File(context.filesDir, "chat_histories").apply {
             mkdirs()
@@ -120,7 +129,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
             Log.d("MainViewModel", "Checking model file: path=${modelPath.value}, exists=${modelFile.exists()}, absolutePath=${modelFile.absolutePath}, size=${if (modelFile.exists()) modelFile.length() else 0} bytes")
             if (modelFile.exists()) {
                 selectedUri.value = Uri.fromFile(modelFile)
-                selectedFileName.value = modelPath.value.substringAfterLast('/')
+                selectedFileName.value = getModelDisplayName(modelPath.value.substringAfterLast('/'))
                 Log.d("MainViewModel", "Initialized selectedUri=${selectedUri.value}, selectedFileName=${selectedFileName.value}")
                 try {
                     isLoadingModel.value = true
@@ -178,9 +187,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
             putBoolean("isModelLoaded", _isModelLoaded.value)
             putString("historyDir", chatsDir.parent ?: context.filesDir.absolutePath)
             putString("downloadedModels", Json.encodeToString(_downloadedModels.value))
+            putString("selectedFileName", selectedFileName.value)
             apply()
         }
-        Log.d("MainViewModel", "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${_isModelLoaded.value}, downloadedModels=${_downloadedModels.value}")
+        Log.d("MainViewModel", "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${_isModelLoaded.value}, downloadedModels=${_downloadedModels.value}, selectedFileName=${selectedFileName.value}")
         try {
             llama.initialize(userName.value, assistantName.value)
             Log.d("MainViewModel", "LLaMA re-initialized after saving preferences")
@@ -345,18 +355,22 @@ class MainViewModel(private val context: Context) : ViewModel() {
                             return@launch
                         }
                         val internalFile = File(context.filesDir, fileName)
-                        context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                            FileOutputStream(internalFile).use { outputStream ->
-                                inputStream.copyTo(outputStream)
+                        if (!internalFile.exists()) { // Only copy if the file doesn't exist
+                            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                                FileOutputStream(internalFile).use { outputStream ->
+                                    inputStream.copyTo(outputStream)
+                                }
                             }
+                            Log.d("MainViewModel", "Copied file from URI: $uri, new path: ${internalFile.absolutePath}")
+                        } else {
+                            Log.d("MainViewModel", "File already exists, skipping copy: ${internalFile.absolutePath}")
                         }
                         if (internalFile.exists()) {
                             modelPathStr = internalFile.absolutePath
-                            Log.d("MainViewModel", "Copied file from URI: $uri, new path: $modelPathStr")
                         } else {
                             importError.value = "Failed to copy model file from $uri"
                             setModelLoaded(false)
-                            Log.e("MainViewModel", "Failed to copy file from URI: $uri, isModelLoaded=${isModelLoaded.value}")
+                            Log.e("ModelImportCard", "File copy failed: $fileName")
                             return@launch
                         }
                     }
@@ -388,7 +402,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 }
                 llama.load(modelPathStr)
                 modelPath.value = modelPathStr
-                selectedFileName.value = modelPathStr.substringAfterLast('/')
+                selectedFileName.value = getModelDisplayName(modelPathStr.substringAfterLast('/'))
                 selectedUri.value = Uri.fromFile(File(modelPathStr))
                 setModelLoaded(true)
                 savePrefs(sharedPrefs)

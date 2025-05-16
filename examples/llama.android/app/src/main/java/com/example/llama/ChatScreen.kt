@@ -525,12 +525,8 @@ fun ChatScreen(
             onDismiss = { showModelDialog = false },
             onModelSelected = { path, isDownloaded ->
                 viewModel.setModelPath(path)
-                val modelName = if (isDownloaded) {
-                    modelOptions.find { "${it.name.lowercase().replace(" ", "_")}.gguf" == File(path).name }?.name
-                } else {
-                    File(path).name.removeSuffix(".gguf")
-                }
-                viewModel.selectedFileName.value = modelName ?: File(path).name.removeSuffix(".gguf")
+                // No need to set selectedFileName here; setModelPath in MainViewModel already handles it
+                Log.d("ChatScreen", "Model selected: path=$path, isDownloaded=$isDownloaded")
             }
         )
     }

@@ -36,7 +36,6 @@ import com.example.llama.ui.theme.Black
 import com.example.llama.ui.theme.PurplePrimary
 import com.example.llama.ui.theme.PurpleLight
 import com.example.llama.ui.theme.PurpleHeading
-import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -376,7 +375,11 @@ fun SettingsScreen(
                 // Model selection dialog
                 if (showModelDialog) {
                     Dialog(
-                        onDismissRequest = { showModelDialog = false },
+                        onDismissRequest = {
+                            showModelDialog = false
+                            viewModel.importError.value = ""
+                            viewModel.showImportSuccess.value = false // Reset on dismiss
+                        },
                         properties = DialogProperties(
                             usePlatformDefaultWidth = false,
                             dismissOnBackPress = true,
@@ -395,22 +398,16 @@ fun SettingsScreen(
                                 downloadManager = downloadManager,
                                 modelOptions = modelOptions,
                                 onImportClick = { filePickerLauncher.launch("*/*") },
-                                onSave = { path, isDownloaded ->
-                                    // Update the MainViewModel with the new model path
+                                onSave = { path, isDownloaded, displayName ->
                                     viewModel.setModelPath(path)
-                                    // Update the selected file name based on whether it's a downloaded or imported model
-                                    viewModel.selectedFileName.value = if (isDownloaded) {
-                                        modelOptions.find { "${it.name.lowercase().replace(" ", "_")}.gguf" == File(path).name }?.name
-                                            ?: File(path).name.removeSuffix(".gguf")
-                                    } else {
-                                        File(path).name.removeSuffix(".gguf")
-                                    }
-                                    // Mark the model as loaded
                                     viewModel.setModelLoaded(true)
-                                    // Save preferences to persist the model selection
                                     viewModel.savePrefs(prefs)
-                                    // Close the dialog
+                                    viewModel.selectedFileName.value = displayName
                                     showModelDialog = false
+                                    viewModel.selectedUri.value = null // Clear URI
+                                    viewModel.selectedFileName.value = null // Clear file name
+                                    viewModel.importError.value = ""
+                                    viewModel.showImportSuccess.value = false // Reset success state
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth(0.9f)

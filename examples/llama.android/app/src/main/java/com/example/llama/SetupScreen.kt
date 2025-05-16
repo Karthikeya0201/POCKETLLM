@@ -12,13 +12,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -38,8 +35,8 @@ import com.example.llama.model.Downloadable
 import com.example.llama.ui.theme.PurpleHeading
 import com.example.llama.ui.theme.PurplePrimary
 import com.example.llama.ui.theme.White
-import java.io.File
 import android.util.Log
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,10 +50,30 @@ fun SetupScreen(
 ) {
     val context = LocalContext.current
     var showModelDialog by remember { mutableStateOf(false) }
-    var isModelReady by remember { mutableStateOf(false) }
+    var isModelReady by remember { mutableStateOf(viewModel.isModelLoaded.value) }
     var loadedModel by remember { mutableStateOf<Pair<String, Boolean>?>(null) } // (modelName, isDownloaded)
     var isUserNameFocused by remember { mutableStateOf(false) }
     var isAssistantNameFocused by remember { mutableStateOf(false) }
+    var pendingDialogOpen by remember { mutableStateOf(false) }
+
+    // Initialize state only once when the composable is created
+    LaunchedEffect(Unit) {
+        if (viewModel.isModelLoaded.value && viewModel.modelPath.value.isNotEmpty()) {
+            val displayName = viewModel.selectedFileName.value ?: viewModel.getModelDisplayName(viewModel.modelPath.value.substringAfterLast('/'))
+            loadedModel = Pair(displayName, false)
+            isModelReady = true
+            Log.d("SetupScreen", "Initialized with loaded model: $displayName, isModelReady=$isModelReady")
+        }
+    }
+
+    // Delay opening the dialog to ensure state has settled
+    LaunchedEffect(pendingDialogOpen) {
+        if (pendingDialogOpen) {
+            delay(100)
+            showModelDialog = true
+            pendingDialogOpen = false
+        }
+    }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -73,8 +90,10 @@ fun SetupScreen(
             if (fileName?.endsWith(".gguf", ignoreCase = true) == true) {
                 viewModel.selectedUri.value = uri
                 viewModel.selectedFileName.value = fileName
+                Log.d("SetupScreen", "File selected: $fileName, URI: $uri")
             } else {
                 viewModel.importError.value = "Please select a .gguf file"
+                Log.d("SetupScreen", "Invalid file type: $fileName")
             }
         }
     }
@@ -197,7 +216,11 @@ fun SetupScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp)
                 .height(72.dp)
-                .clickable { showModelDialog = true },
+                .clickable {
+                    if (!showModelDialog) { // Prevent multiple dialog openings
+                        pendingDialogOpen = true
+                    }
+                },
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             border = BorderStroke(1.dp, Color(0xFFD9BDFE))
@@ -311,7 +334,11 @@ fun SetupScreen(
 
         if (showModelDialog) {
             Dialog(
-                onDismissRequest = { showModelDialog = false },
+                onDismissRequest = {
+                    showModelDialog = false
+                    viewModel.importError.value = ""
+                    Log.d("SetupScreen", "Dialog dismissed, showImportSuccess=${viewModel.showImportSuccess.value}")
+                },
                 properties = DialogProperties(
                     usePlatformDefaultWidth = false,
                     dismissOnBackPress = true,
@@ -329,16 +356,23 @@ fun SetupScreen(
                         viewModel = viewModel,
                         downloadManager = downloadManager,
                         modelOptions = modelOptions,
-                        onImportClick = { filePickerLauncher.launch("application/*") },
-                        onSave = { modelPath, isDownloaded ->
-                            Log.d("SetupScreen", "onSave called with modelPath=$modelPath, isDownloaded=$isDownloaded")
-                            val modelName = modelOptions.find { it.destination.absolutePath == modelPath }?.name
-                                ?: File(modelPath).name
-                            viewModel.selectedFileName.value = modelName
-                            loadedModel = Pair(modelName, isDownloaded)
+                        onImportClick = {
+                            if (!viewModel.showImportSuccess.value) {
+                                filePickerLauncher.launch("application/*")
+                            } else {
+                                Log.d("SetupScreen", "Import click ignored, model already imported")
+                            }
+                        },
+                        onSave = { modelPath, isDownloaded, displayName ->
+                            Log.d("SetupScreen", "onSave called with modelPath=$modelPath, isDownloaded=$isDownloaded, displayName=$displayName")
+                            viewModel.setModelPath(modelPath)
+                            loadedModel = Pair(displayName, isDownloaded)
                             isModelReady = true
                             showModelDialog = false
-                            viewModel.setModelPath(modelPath)
+                            viewModel.selectedUri.value = null
+                            viewModel.selectedFileName.value = null
+                            viewModel.importError.value = ""
+                            viewModel.showImportSuccess.value = true
                         },
                         modifier = Modifier
                             .fillMaxWidth(0.9f)
@@ -403,5 +437,10 @@ fun SetupScreen(
     // Log isModelLoaded changes for debugging
     LaunchedEffect(viewModel.isModelLoaded.value) {
         Log.d("SetupScreen", "isModelLoaded changed: ${viewModel.isModelLoaded.value}")
+    }
+
+    // Log showImportSuccess changes for debugging
+    LaunchedEffect(viewModel.showImportSuccess.value) {
+        Log.d("SetupScreen", "showImportSuccess changed: ${viewModel.showImportSuccess.value}")
     }
 }

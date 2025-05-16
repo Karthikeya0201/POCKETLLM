@@ -51,11 +51,7 @@ fun ModelSelectionDialog(
             val isDownloaded = modelOptions.any {
                 getModelFileName(it.name) == file.name
             }
-            val displayName = if (isDownloaded) {
-                modelOptions.find { getModelFileName(it.name) == file.name }?.name ?: modelName
-            } else {
-                file.name
-            }
+            val displayName = viewModel.getModelDisplayName(file.name)
             Triple(displayName, isDownloaded, file.name)
         }
         availableModels = modelList
@@ -129,7 +125,7 @@ fun ModelSelectionDialog(
                                     },
                                 shape = RoundedCornerShape(8.dp),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = if (viewModel.selectedFileName.value == actualFileName) PurplePrimary.copy(alpha = 0.1f) else Color.White
+                                    containerColor = if (viewModel.selectedFileName.value == displayName) PurplePrimary.copy(alpha = 0.1f) else Color.White
                                 ),
                                 border = BorderStroke(1.dp, Color(0xFFD9BDFE))
                             ) {
