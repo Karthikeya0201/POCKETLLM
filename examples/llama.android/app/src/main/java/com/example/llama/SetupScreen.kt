@@ -34,16 +34,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.NavHostController
 import com.example.llama.component.ModelImportCard
-import com.example.llama.component.ProgressComponent
 import com.example.llama.model.Downloadable
 import com.example.llama.ui.theme.PurpleHeading
 import com.example.llama.ui.theme.PurplePrimary
 import com.example.llama.ui.theme.White
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 import android.util.Log
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -57,7 +52,6 @@ fun SetupScreen(
     prefs: SharedPreferences
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var showModelDialog by remember { mutableStateOf(false) }
     var isModelReady by remember { mutableStateOf(false) }
     var loadedModel by remember { mutableStateOf<Pair<String, Boolean>?>(null) } // (modelName, isDownloaded)
@@ -338,14 +332,12 @@ fun SetupScreen(
                         onImportClick = { filePickerLauncher.launch("application/*") },
                         onSave = { modelPath, isDownloaded ->
                             Log.d("SetupScreen", "onSave called with modelPath=$modelPath, isDownloaded=$isDownloaded")
-                            // Get model name from path or modelOptions for display
                             val modelName = modelOptions.find { it.destination.absolutePath == modelPath }?.name
                                 ?: File(modelPath).name
                             viewModel.selectedFileName.value = modelName
                             loadedModel = Pair(modelName, isDownloaded)
                             isModelReady = true
                             showModelDialog = false
-                            // Set the model path in MainViewModel
                             viewModel.setModelPath(modelPath)
                         },
                         modifier = Modifier
@@ -381,18 +373,16 @@ fun SetupScreen(
                         apply()
                     }
                     Log.d("SetupScreen", "Set isFirstLaunch to false in SharedPreferences")
-                    if (isFirstLaunch) {
-                        navController.navigate("chat") {
-                            popUpTo("setup") { inclusive = true }
-                        }
-                        Log.d("SetupScreen", "Navigated to ChatScreen after saving model")
+                    navController.navigate("chat") {
+                        popUpTo("setup") { inclusive = true }
                     }
+                    Log.d("SetupScreen", "Navigated to ChatScreen after saving model")
                 },
-                enabled = isModelReady,
+                enabled = isModelReady && viewModel.userName.value.isNotBlank() && viewModel.assistantName.value.isNotBlank(),
                 shape = RoundedCornerShape(24.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isModelReady) PurplePrimary else Color.LightGray,
-                    contentColor = if (isModelReady) White else Color.Gray
+                    containerColor = if (isModelReady && viewModel.userName.value.isNotBlank() && viewModel.assistantName.value.isNotBlank()) PurplePrimary else Color.LightGray,
+                    contentColor = if (isModelReady && viewModel.userName.value.isNotBlank() && viewModel.assistantName.value.isNotBlank()) White else Color.Gray
                 ),
                 modifier = Modifier
                     .width(150.dp)
@@ -408,5 +398,10 @@ fun SetupScreen(
         val prefsState = prefs.getString("modelPath", "") ?: ""
         val isModelLoaded = prefs.getBoolean("isModelLoaded", false)
         Log.d("SetupScreen", "SharedPrefs after save: modelPath=$prefsState, isModelLoaded=$isModelLoaded")
+    }
+
+    // Log isModelLoaded changes for debugging
+    LaunchedEffect(viewModel.isModelLoaded.value) {
+        Log.d("SetupScreen", "isModelLoaded changed: ${viewModel.isModelLoaded.value}")
     }
 }

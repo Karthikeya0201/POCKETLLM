@@ -17,7 +17,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -48,12 +50,29 @@ class MainViewModel(private val context: Context) : ViewModel() {
     private val _isModelLoaded = mutableStateOf(false)
     val isModelLoaded: State<Boolean> = _isModelLoaded
 
-    // Add downloadedModels property
     private val _downloadedModels: MutableState<Set<String>> = mutableStateOf(emptySet())
     val downloadedModels: State<Set<String>> = _downloadedModels
 
+    private val _isInitialized = mutableStateOf(false)
+    val isInitialized: State<Boolean> get() = _isInitialized
+
+    private val _isFirstLaunch = mutableStateOf(true)
+    val isFirstLaunch: State<Boolean> = _isFirstLaunch
+
     init {
-        loadPrefs(sharedPrefs)
+        initialize()
+    }
+
+    private fun initialize() {
+        viewModelScope.launch {
+            try {
+                loadPrefs(sharedPrefs)
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Initialization failed: ${e.stackTraceToString()}")
+            }
+            _isInitialized.value = true
+            Log.d("MainViewModel", "Initialization complete, isModelLoaded=${isModelLoaded.value}")
+        }
     }
 
     fun setModelLoaded(loaded: Boolean) {
@@ -69,11 +88,12 @@ class MainViewModel(private val context: Context) : ViewModel() {
         return "${modelName.lowercase().replace(" ", "_")}.gguf"
     }
 
-    fun loadPrefs(prefs: SharedPreferences) {
+    suspend fun loadPrefs(prefs: SharedPreferences) {
         userName.value = prefs.getString("userName", "") ?: ""
         assistantName.value = prefs.getString("assistantName", "") ?: ""
         modelPath.value = prefs.getString("modelPath", "") ?: ""
-        // Load downloadedModels from SharedPreferences
+        _isModelLoaded.value = prefs.getBoolean("isModelLoaded", false)
+        _isFirstLaunch.value = prefs.getBoolean("isFirstLaunch", true)
         val downloadedModelsJson = prefs.getString("downloadedModels", null)
         _downloadedModels.value = if (downloadedModelsJson != null) {
             Json.decodeFromString(downloadedModelsJson)
@@ -85,59 +105,62 @@ class MainViewModel(private val context: Context) : ViewModel() {
             Log.d("MainViewModel", "Initialized chatsDir: $absolutePath")
         }
         loadChatHistories()
-        llama.initialize(userName.value, assistantName.value)
-        Log.d("MainViewModel", "Loaded preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, downloadedModels=${_downloadedModels.value}")
+        try {
+            llama.initialize(userName.value, assistantName.value)
+            Log.d("MainViewModel", "LLaMA initialized with userName=${userName.value}, assistantName=${assistantName.value}")
+        } catch (e: Exception) {
+            Log.e("MainViewModel", "Failed to initialize LLaMA: ${e.stackTraceToString()}")
+            importError.value = "Failed to initialize model library: ${e.message}"
+        }
+        Log.d("MainViewModel", "Loaded preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}, downloadedModels=${_downloadedModels.value}")
 
-        // Initialize selectedUri and selectedFileName based on modelPath
+        // Always attempt to reload the model if modelPath exists
         if (modelPath.value.isNotEmpty()) {
             val modelFile = File(modelPath.value)
-            Log.d("MainViewModel", "Checking model file: path=${modelPath.value}, exists=${modelFile.exists()}, absolutePath=${modelFile.absolutePath}")
+            Log.d("MainViewModel", "Checking model file: path=${modelPath.value}, exists=${modelFile.exists()}, absolutePath=${modelFile.absolutePath}, size=${if (modelFile.exists()) modelFile.length() else 0} bytes")
             if (modelFile.exists()) {
                 selectedUri.value = Uri.fromFile(modelFile)
                 selectedFileName.value = modelPath.value.substringAfterLast('/')
                 Log.d("MainViewModel", "Initialized selectedUri=${selectedUri.value}, selectedFileName=${selectedFileName.value}")
-                runBlocking {
+                try {
+                    isLoadingModel.value = true
+                    Log.d("MainViewModel", "Attempting to reload model from path: ${modelPath.value}")
                     try {
-                        isLoadingModel.value = true
-                        Log.d("MainViewModel", "Attempting to load model from path: ${modelPath.value}")
-                        try {
-                            llama.unload()
-                            Log.d("MainViewModel", "Unloaded any existing model")
-                        } catch (e: Exception) {
-                            Log.e("MainViewModel", "Error unloading model: ${e.message}")
-                        }
-                        llama.load(modelPath.value)
-                        setModelLoaded(true)
-                        Log.d("MainViewModel", "Model successfully loaded from saved path: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
+                        llama.unload()
+                        Log.d("MainViewModel", "Unloaded any existing model")
                     } catch (e: Exception) {
-                        importError.value = "Failed to load model on startup: ${e.message}"
-                        setModelLoaded(false)
-                        // Clear modelPath to force re-selection
-                        modelPath.value = ""
-                        selectedUri.value = null
-                        selectedFileName.value = null
-                        with(sharedPrefs.edit()) {
-                            putString("modelPath", "")
-                            putBoolean("isModelLoaded", false)
-                            apply()
-                        }
-                        Log.e("MainViewModel", "Model load error on startup: ${e.stackTraceToString()}, cleared modelPath, isModelLoaded=${isModelLoaded.value}")
-                    } finally {
-                        isLoadingModel.value = false
+                        Log.e("MainViewModel", "Error unloading model: ${e.stackTraceToString()}")
                     }
+                    llama.load(modelPath.value)
+                    setModelLoaded(true)
+                    Log.d("MainViewModel", "Model successfully reloaded: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
+                } catch (e: Exception) {
+                    importError.value = "Failed to reload model on startup: ${e.stackTraceToString()}"
+                    setModelLoaded(false)
+                    modelPath.value = ""
+                    selectedUri.value = null
+                    selectedFileName.value = null
+                    with(sharedPrefs.edit()) {
+                        putString("modelPath", "")
+                        putString("selectedFileName", "")
+                        apply()
+                    }
+                    Log.e("MainViewModel", "Model reload error on startup: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
+                } finally {
+                    isLoadingModel.value = false
                 }
             } else {
                 setModelLoaded(false)
-                // Clear modelPath to force re-selection
                 modelPath.value = ""
                 selectedUri.value = null
                 selectedFileName.value = null
+                importError.value = "Model file not found at ${modelPath.value}. Please select a new model."
                 with(sharedPrefs.edit()) {
                     putString("modelPath", "")
-                    putBoolean("isModelLoaded", false)
+                    putString("selectedFileName", "")
                     apply()
                 }
-                Log.e("MainViewModel", "Model file does not exist at saved path: ${modelPath.value}, cleared modelPath, isModelLoaded=${isModelLoaded.value}")
+                Log.e("MainViewModel", "Model file does not exist at saved path: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
             }
         } else {
             setModelLoaded(false)
@@ -152,35 +175,41 @@ class MainViewModel(private val context: Context) : ViewModel() {
             putString("userName", userName.value)
             putString("assistantName", assistantName.value)
             putString("modelPath", modelPath.value)
-            putBoolean("isFirstLaunch", false)
+            putBoolean("isModelLoaded", _isModelLoaded.value)
             putString("historyDir", chatsDir.parent ?: context.filesDir.absolutePath)
-            // Save downloadedModels to SharedPreferences
             putString("downloadedModels", Json.encodeToString(_downloadedModels.value))
             apply()
         }
-        Log.d("MainViewModel", "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, downloadedModels=${_downloadedModels.value}")
-        llama.initialize(userName.value, assistantName.value)
-    }
-
-    private fun loadChatHistories() {
-        chatHistories.clear()
-        val files = chatsDir.listFiles()
-        Log.d("MainViewModel", "Loading chat histories, found ${files?.size ?: 0} files")
-        files?.forEach { file ->
-            try {
-                val json = file.readText()
-                val chatHistory = Json.decodeFromString<ChatHistory>(json)
-                chatHistories.add(chatHistory)
-                Log.d("MainViewModel", "Loaded chat: ${chatHistory.title} (ID: ${chatHistory.id})")
-            } catch (e: Exception) {
-                Log.e("MainViewModel", "Failed to load chat history from ${file.name}: ${e.message}")
-            }
+        Log.d("MainViewModel", "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${_isModelLoaded.value}, downloadedModels=${_downloadedModels.value}")
+        try {
+            llama.initialize(userName.value, assistantName.value)
+            Log.d("MainViewModel", "LLaMA re-initialized after saving preferences")
+        } catch (e: Exception) {
+            Log.e("MainViewModel", "Failed to re-initialize LLaMA after saving preferences: ${e.stackTraceToString()}")
         }
-        chatHistories.sortByDescending { it.date }
-        Log.d("MainViewModel", "Chat histories loaded, total: ${chatHistories.size}")
     }
 
-    fun saveCurrentChat() {
+    private suspend fun loadChatHistories() {
+        withContext(Dispatchers.IO) {
+            chatHistories.clear()
+            val files = chatsDir.listFiles()
+            Log.d("MainViewModel", "Loading chat histories, found ${files?.size ?: 0} files")
+            files?.forEach { file ->
+                try {
+                    val json = file.readText()
+                    val chatHistory = Json.decodeFromString<ChatHistory>(json)
+                    chatHistories.add(chatHistory)
+                    Log.d("MainViewModel", "Loaded chat: ${chatHistory.title} (ID: ${chatHistory.id})")
+                } catch (e: Exception) {
+                    Log.e("MainViewModel", "Failed to load chat history from ${file.name}: ${e.stackTraceToString()}")
+                }
+            }
+            chatHistories.sortByDescending { it.date }
+            Log.d("MainViewModel", "Chat histories loaded, total: ${chatHistories.size}")
+        }
+    }
+
+    suspend fun saveCurrentChat() {
         if (messages.isEmpty()) {
             Log.d("MainViewModel", "No messages to save")
             return
@@ -205,61 +234,74 @@ class MainViewModel(private val context: Context) : ViewModel() {
         )
         val file = File(chatsDir, "$chatId.json")
 
-        try {
-            val json = Json.encodeToString(chatHistory)
-            file.writeText(json)
-            Log.d("MainViewModel", "Chat saved to: ${file.absolutePath}")
-
-            val existingIndex = chatHistories.indexOfFirst { it.id == chatId }
-            if (existingIndex != -1) {
-                chatHistories[existingIndex] = chatHistory
-                Log.d("MainViewModel", "Updated existing chat: $chatId")
-            } else {
-                chatHistories.add(chatHistory)
-                currentChatId = chatId
-                Log.d("MainViewModel", "Added new chat: $chatId")
-            }
-            chatHistories.sortByDescending { it.date }
-            Log.d("MainViewModel", "Chat list updated, size: ${chatHistories.size}")
-        } catch (e: Exception) {
-            Log.e("MainViewModel", "Failed to save chat $chatId: ${e.stackTraceToString()}")
-        }
-    }
-
-    fun loadChat(chatId: String) {
-        val file = File(chatsDir, "$chatId.json")
-        if (file.exists()) {
+        withContext(Dispatchers.IO) {
             try {
-                val json = file.readText()
-                val chatHistory = Json.decodeFromString<ChatHistory>(json)
-                messages.clear()
-                messages.addAll(chatHistory.messages)
-                currentChatId = chatId
-                Log.d("MainViewModel", "Loaded chat $chatId with ${chatHistory.messages.size} messages")
-            } catch (e: Exception) {
-                Log.e("MainViewModel", "Failed to load chat $chatId: ${e.message}")
-            }
-        } else {
-            Log.e("MainViewModel", "Chat file not found: ${file.absolutePath}")
-        }
-    }
+                val json = Json.encodeToString(chatHistory)
+                file.writeText(json)
+                Log.d("MainViewModel", "Chat saved to: ${file.absolutePath}")
 
-    fun deleteChat(chatId: String) {
-        val file = File(chatsDir, "$chatId.json")
-        if (file.exists()) {
-            try {
-                file.delete()
-                chatHistories.removeAll { it.id == chatId }
-                if (currentChatId == chatId) {
-                    messages.clear()
-                    currentChatId = null
+                val existingIndex = chatHistories.indexOfFirst { it.id == chatId }
+                if (existingIndex != -1) {
+                    chatHistories[existingIndex] = chatHistory
+                    Log.d("MainViewModel", "Updated existing chat: $chatId")
+                } else {
+                    chatHistories.add(chatHistory)
+                    currentChatId = chatId
+                    Log.d("MainViewModel", "Added new chat: $chatId")
                 }
-                Log.d("MainViewModel", "Deleted chat $chatId, remaining: ${chatHistories.size}")
+                chatHistories.sortByDescending { it.date }
+                Log.d("MainViewModel", "Chat list updated, size: ${chatHistories.size}")
             } catch (e: Exception) {
-                Log.e("MainViewModel", "Failed to delete chat $chatId: ${e.message}")
+                Log.e("MainViewModel", "Failed to save chat $chatId: ${e.stackTraceToString()}")
             }
-        } else {
-            Log.e("MainViewModel", "Chat file not found for deletion: ${file.absolutePath}")
+        }
+    }
+
+    suspend fun loadChat(chatId: String) {
+        while (!_isInitialized.value) {
+            Log.d("MainViewModel", "Waiting for initialization to complete before loading chat $chatId")
+            delay(100)
+        }
+
+        withContext(Dispatchers.IO) {
+            val file = File(chatsDir, "$chatId.json")
+            if (file.exists()) {
+                try {
+                    val json = file.readText()
+                    val chatHistory = Json.decodeFromString<ChatHistory>(json)
+                    messages.clear()
+                    messages.addAll(chatHistory.messages)
+                    currentChatId = chatId
+                    Log.d("MainViewModel", "Loaded chat $chatId with ${chatHistory.messages.size} messages")
+                } catch (e: Exception) {
+                    Log.e("MainViewModel", "Failed to load chat $chatId: ${e.stackTraceToString()}")
+                    throw e
+                }
+            } else {
+                Log.e("MainViewModel", "Chat file not found: ${file.absolutePath}")
+                throw Exception("Chat file not found: ${file.absolutePath}")
+            }
+        }
+    }
+
+    suspend fun deleteChat(chatId: String) {
+        withContext(Dispatchers.IO) {
+            val file = File(chatsDir, "$chatId.json")
+            if (file.exists()) {
+                try {
+                    file.delete()
+                    chatHistories.removeAll { it.id == chatId }
+                    if (currentChatId == chatId) {
+                        messages.clear()
+                        currentChatId = null
+                    }
+                    Log.d("MainViewModel", "Deleted chat $chatId, remaining: ${chatHistories.size}")
+                } catch (e: Exception) {
+                    Log.e("MainViewModel", "Failed to delete chat $chatId: ${e.stackTraceToString()}")
+                }
+            } else {
+                Log.e("MainViewModel", "Chat file not found for deletion: ${file.absolutePath}")
+            }
         }
     }
 
@@ -326,13 +368,22 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     }
                 }
                 Log.d("MainViewModel", "Attempting to load model from path: $modelPathStr")
+                try {
+                    llama.initialize(userName.value, assistantName.value)
+                    Log.d("MainViewModel", "LLaMA initialized before loading model")
+                } catch (e: Exception) {
+                    importError.value = "Failed to initialize model library before loading: ${e.message}"
+                    setModelLoaded(false)
+                    Log.e("MainViewModel", "Failed to initialize LLaMA before loading: ${e.stackTraceToString()}")
+                    return@launch
+                }
                 if (_isModelLoaded.value) {
                     Log.d("MainViewModel", "Unloading existing model before loading new one")
                     try {
                         llama.unload()
                         Log.d("MainViewModel", "Unloaded existing model")
                     } catch (e: Exception) {
-                        Log.e("MainViewModel", "Error unloading model: ${e.message}")
+                        Log.e("MainViewModel", "Error unloading model: ${e.stackTraceToString()}")
                     }
                 }
                 llama.load(modelPathStr)
@@ -340,11 +391,12 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 selectedFileName.value = modelPathStr.substringAfterLast('/')
                 selectedUri.value = Uri.fromFile(File(modelPathStr))
                 setModelLoaded(true)
-                savePrefs(sharedPrefs) // Ensure the path is saved
+                savePrefs(sharedPrefs)
                 Log.d("MainViewModel", "Model loaded successfully: $modelPathStr, selectedFileName=${selectedFileName.value}, isModelLoaded=${isModelLoaded.value}")
             } catch (e: Exception) {
-                importError.value = "Failed to load model: ${e.message}"
+                importError.value = "Failed to load model: ${e.stackTraceToString()}"
                 setModelLoaded(false)
+                savePrefs(sharedPrefs)
                 Log.e("MainViewModel", "Model load error: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
             } finally {
                 isLoadingModel.value = false
@@ -352,29 +404,34 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
     }
 
-    // Add method to update downloadedModels
     fun addDownloadedModel(modelName: String) {
         _downloadedModels.value = _downloadedModels.value + modelName
-        savePrefs(sharedPrefs) // Persist the updated list
+        savePrefs(sharedPrefs)
         Log.d("MainViewModel", "Added downloaded model: $modelName, total: ${_downloadedModels.value}")
     }
 
     fun startNewChat() {
         Log.d("MainViewModel", "Starting new chat")
-        saveCurrentChat()
-        messages.clear()
-        currentChatId = null
-        sendJob?.cancel()
-        isGenerating.value = false
-        if (!_isModelLoaded.value && modelPath.value.isNotEmpty() && File(modelPath.value).exists()) {
-            viewModelScope.launch {
+        viewModelScope.launch {
+            saveCurrentChat()
+            messages.clear()
+            currentChatId = null
+            sendJob?.cancel()
+            isGenerating.value = false
+            if (!_isModelLoaded.value && modelPath.value.isNotEmpty() && File(modelPath.value).exists()) {
                 try {
                     Log.d("MainViewModel", "Model not loaded, attempting to load: ${modelPath.value}")
+                    try {
+                        llama.initialize(userName.value, assistantName.value)
+                        Log.d("MainViewModel", "LLaMA initialized in startNewChat")
+                    } catch (e: Exception) {
+                        Log.e("MainViewModel", "Failed to initialize LLaMA in startNewChat: ${e.stackTraceToString()}")
+                    }
                     try {
                         llama.unload()
                         Log.d("MainViewModel", "Unloaded any existing model")
                     } catch (e: Exception) {
-                        Log.e("MainViewModel", "Error unloading model: ${e.message}")
+                        Log.e("MainViewModel", "Error unloading model: ${e.stackTraceToString()}")
                     }
                     llama.load(modelPath.value)
                     setModelLoaded(true)
@@ -383,11 +440,11 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     setModelLoaded(false)
                     Log.e("MainViewModel", "Model load error in startNewChat: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
                 }
+            } else {
+                Log.d("MainViewModel", "Model already loaded or no model to load: isModelLoaded=${_isModelLoaded.value}, modelPath=${modelPath.value}")
             }
-        } else {
-            Log.d("MainViewModel", "Model already loaded or no model to load: isModelLoaded=${_isModelLoaded.value}, modelPath=${modelPath.value}")
+            Log.d("MainViewModel", "New chat started, messages cleared")
         }
-        Log.d("MainViewModel", "New chat started, messages cleared")
     }
 
     fun send(prompt: String = message.value.trim()) {
@@ -473,9 +530,13 @@ class MainViewModel(private val context: Context) : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         viewModelScope.launch {
-            llama.unload()
-            setModelLoaded(false)
-            Log.d("MainViewModel", "ViewModel cleared, unloaded LLM")
+            try {
+                llama.unload()
+                setModelLoaded(false)
+                Log.d("MainViewModel", "ViewModel cleared, unloaded LLM")
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Error unloading LLM on ViewModel clear: ${e.stackTraceToString()}")
+            }
         }
     }
 }

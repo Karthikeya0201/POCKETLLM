@@ -10,7 +10,12 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,7 +25,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.ChatBubble
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -52,6 +56,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.TileMode
 import java.io.File
 
+// Updated sealed class to remove Initializing state
+sealed class ChatLoadingState {
+    object Idle : ChatLoadingState()
+    object Loading : ChatLoadingState()
+    data class Success(val messages: List<String>) : ChatLoadingState()
+    data class Error(val message: String) : ChatLoadingState()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -66,19 +78,8 @@ fun ChatScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
-    val currentDate = SimpleDateFormat("MMM dd, yyyy").format(Date())
-    var isLoadingChat by remember { mutableStateOf(false) }
+    var chatLoadingState by remember { mutableStateOf<ChatLoadingState>(ChatLoadingState.Idle) }
     var showModelDialog by remember { mutableStateOf(false) }
-
-    val infiniteTransition = rememberInfiniteTransition()
-    val dotOffset by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 500, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        )
-    )
 
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -105,6 +106,7 @@ fun ChatScreen(
     LaunchedEffect(Unit) {
         viewModel.messages.clear()
         viewModel.currentChatId = null
+        chatLoadingState = ChatLoadingState.Idle
         Log.d("ChatScreen", "Started fresh chat with no welcome message")
     }
 
@@ -146,13 +148,18 @@ fun ChatScreen(
                 onHistorySelected = { chatId ->
                     scope.launch {
                         Log.d("ChatScreen", "Loading chat: $chatId")
-                        isLoadingChat = true
-                        viewModel.loadChat(chatId)
-                        drawerState.close()
-                        delay(200)
-                        scrollState.scrollToItem(viewModel.messages.size - 1)
-                        isLoadingChat = false
-                        Log.d("ChatScreen", "Chat loaded, drawer closed")
+                        chatLoadingState = ChatLoadingState.Loading
+                        try {
+                            viewModel.loadChat(chatId)
+                            chatLoadingState = ChatLoadingState.Success(viewModel.messages.toList())
+                            drawerState.close()
+                            delay(200)
+                            scrollState.scrollToItem(viewModel.messages.size - 1)
+                            Log.d("ChatScreen", "Chat loaded successfully, drawer closed")
+                        } catch (e: Exception) {
+                            Log.e("ChatScreen", "Failed to load chat: ${e.message}")
+                            chatLoadingState = ChatLoadingState.Error("Failed to load chat: ${e.message}")
+                        }
                     }
                 },
                 onNewChat = {
@@ -160,6 +167,7 @@ fun ChatScreen(
                         Log.d("ChatScreen", "New chat requested")
                         if (viewModel.messages.isNotEmpty()) {
                             viewModel.startNewChat()
+                            chatLoadingState = ChatLoadingState.Idle
                             Log.d("ChatScreen", "New chat started, drawer closed")
                         } else {
                             Log.d("ChatScreen", "Current chat is empty, no new chat needed")
@@ -168,8 +176,10 @@ fun ChatScreen(
                     }
                 },
                 onDeleteChat = { chatId ->
-                    Log.d("ChatScreen", "Deleting chat: $chatId")
-                    viewModel.deleteChat(chatId)
+                    scope.launch {
+                        Log.d("ChatScreen", "Deleting chat: $chatId")
+                        viewModel.deleteChat(chatId)
+                    }
                 },
                 getChatMessages = { chatId ->
                     viewModel.chatHistories.find { it.id == chatId }?.messages ?: emptyList()
@@ -180,8 +190,11 @@ fun ChatScreen(
         }
     ) {
         Scaffold(
+            modifier = Modifier.fillMaxSize(),
             topBar = {
                 CenterAlignedTopAppBar(
+                    modifier = Modifier
+                        .windowInsetsPadding(WindowInsets.statusBars),
                     navigationIcon = {
                         IconButton(onClick = {
                             scope.launch {
@@ -268,6 +281,7 @@ fun ChatScreen(
                                 Log.d("ChatScreen", "New chat requested from message icon")
                                 if (viewModel.messages.isNotEmpty()) {
                                     viewModel.startNewChat()
+                                    chatLoadingState = ChatLoadingState.Idle
                                 }
                                 drawerState.close()
                             }
@@ -281,183 +295,222 @@ fun ChatScreen(
                         }
                     }
                 )
-            }
-        ) { padding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .background(MaterialTheme.colorScheme.background)
-            ) {
-                if (isLoadingChat) {
-                    Box(
+            },
+            bottomBar = {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.navigationBars),
+                    shadowElevation = 8.dp
+                ) {
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .background(
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                RoundedCornerShape(24.dp)
+                            )
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        CircularProgressIndicator()
-                    }
-                } else if (viewModel.messages.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Hello, ${viewModel.userName.value}",
-                            style = TextStyle(
-                                fontSize = 40.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.SansSerif,
-                                brush = Brush.linearGradient(
-                                    colors = listOf(
-                                        MaterialTheme.colorScheme.primary,
-                                        MaterialTheme.colorScheme.secondary
-                                    ),
-                                    tileMode = TileMode.Clamp
-                                ),
-                                textAlign = TextAlign.Center
+                        TextField(
+                            value = viewModel.message.value,
+                            onValueChange = { newValue -> viewModel.message.value = newValue },
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            textStyle = TextStyle(
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onBackground
+                            ),
+                            placeholder = {
+                                Text(
+                                    "Ask anything",
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                    fontSize = 14.sp
+                                )
+                            },
+                            colors = TextFieldDefaults.colors(
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                disabledIndicatorColor = Color.Transparent,
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent
                             )
                         )
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        state = scrollState,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(viewModel.messages) { message ->
-                            val isUserMessage = message.startsWith("${viewModel.userName.value}:")
-                            val displayText = if (isUserMessage) {
-                                message.removePrefix("${viewModel.userName.value}:").trimStart()
-                            } else {
-                                message.removePrefix("${viewModel.assistantName.value}:").trimStart()
-                            }
-                            val isLoading = !isUserMessage && message.endsWith(": ") && isGenerating
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth(),
-                                horizontalArrangement = if (isUserMessage) Arrangement.End else Arrangement.Start
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        IconButton(
+                            onClick = {
+                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                                intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak something...")
+                                try {
+                                    launcher.launch(intent)
+                                } catch (e: ActivityNotFoundException) {
+                                    Toast.makeText(context, "Speech recognition not supported", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            enabled = !isGenerating && chatLoadingState !is ChatLoadingState.Loading
+                        ) {
+                            Icon(
+                                Icons.Filled.Mic,
+                                contentDescription = "Voice Input",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+
+                        if (isGenerating) {
+                            IconButton(
+                                onClick = { viewModel.pause() },
+                                enabled = true
                             ) {
-                                MessageBubble(
-                                    text = if (isLoading) "..." else displayText,
-                                    isUser = isUserMessage,
-                                    modifier = Modifier
-                                        .widthIn(max = 300.dp)
-                                        .padding(horizontal = 8.dp),
-                                    isLoading = isLoading
+                                Icon(
+                                    Icons.Filled.Pause,
+                                    contentDescription = "Pause",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
+                        } else if (viewModel.message.value.isNotBlank()) {
+                            IconButton(
+                                onClick = {
+                                    Log.d("ChatScreen", "Sending message: ${viewModel.message.value}")
+                                    viewModel.send(viewModel.message.value)
+                                    viewModel.message.value = ""
+                                    focusManager.clearFocus()
+                                },
+                                enabled = !isGenerating && viewModel.message.value.isNotBlank() && chatLoadingState !is ChatLoadingState.Loading
+                            ) {
+                                Icon(
+                                    Icons.Filled.ArrowUpward,
+                                    contentDescription = "Send",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
+                        } else {
+                            IconButton(
+                                onClick = { navController.navigate("talkWithAI") },
+                                enabled = !isGenerating && chatLoadingState !is ChatLoadingState.Loading
+                            ) {
+                                Icon(
+                                    Icons.Filled.GraphicEq,
+                                    contentDescription = "Talk with AI",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(30.dp)
                                 )
                             }
                         }
                     }
                 }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
-                            RoundedCornerShape(24.dp)
-                        )
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextField(
-                        value = viewModel.message.value,
-                        onValueChange = { newValue -> viewModel.message.value = newValue },
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        textStyle = TextStyle(
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onBackground
-                        ),
-                        placeholder = {
-                            Text(
-                                "Ask anything",
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                                fontSize = 14.sp
-                            )
-                        },
-                        colors = TextFieldDefaults.colors(
-                            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                            disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                            focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                            unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                            disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    IconButton(
-                        onClick = {
-                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                            intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak something...")
-                            try {
-                                launcher.launch(intent)
-                            } catch (e: ActivityNotFoundException) {
-                                Toast.makeText(context, "Speech recognition not supported", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        enabled = !isGenerating && !isLoadingChat
-                    ) {
-                        Icon(
-                            Icons.Filled.Mic,
-                            contentDescription = "Voice Input",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(30.dp)
-                        )
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                when (chatLoadingState) {
+                    is ChatLoadingState.Loading -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
+                        }
                     }
-
-                    if (isGenerating) {
-                        IconButton(
-                            onClick = { viewModel.pause() },
-                            enabled = true
+                    is ChatLoadingState.Error -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                Icons.Filled.Pause,
-                                contentDescription = "Pause",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(30.dp)
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = (chatLoadingState as ChatLoadingState.Error).message,
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = {
+                                        scope.launch {
+                                            chatLoadingState = ChatLoadingState.Loading
+                                            try {
+                                                viewModel.loadChat(viewModel.currentChatId ?: return@launch)
+                                                chatLoadingState = ChatLoadingState.Success(viewModel.messages.toList())
+                                                scrollState.scrollToItem(viewModel.messages.size - 1)
+                                            } catch (e: Exception) {
+                                                chatLoadingState = ChatLoadingState.Error("Failed to load chat: ${e.message}")
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Text("Retry")
+                                }
+                            }
                         }
-                    } else if (viewModel.message.value.isNotBlank()) {
-                        IconButton(
-                            onClick = {
-                                Log.d("ChatScreen", "Sending message: ${viewModel.message.value}")
-                                viewModel.send(viewModel.message.value)
-                                viewModel.message.value = ""
-                                focusManager.clearFocus()
-                            },
-                            enabled = !isGenerating && viewModel.message.value.isNotBlank() && !isLoadingChat
-                        ) {
-                            Icon(
-                                Icons.Filled.ArrowUpward,
-                                contentDescription = "Send",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(30.dp)
-                            )
-                        }
-                    } else {
-                        IconButton(
-                            onClick = { navController.navigate("talkWithAI") },
-                            enabled = !isGenerating && !isLoadingChat
-                        ) {
-                            Icon(
-                                Icons.Filled.GraphicEq,
-                                contentDescription = "Talk with AI",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(30.dp)
-                            )
+                    }
+                    is ChatLoadingState.Idle, is ChatLoadingState.Success -> {
+                        if (viewModel.messages.isEmpty()) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Hello, ${viewModel.userName.value}",
+                                    style = TextStyle(
+                                        fontSize = 40.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.SansSerif,
+                                        brush = Brush.linearGradient(
+                                            colors = listOf(
+                                                MaterialTheme.colorScheme.primary,
+                                                MaterialTheme.colorScheme.secondary
+                                            ),
+                                            tileMode = TileMode.Clamp
+                                        ),
+                                        textAlign = TextAlign.Center
+                                    )
+                                )
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                state = scrollState,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(viewModel.messages) { message ->
+                                    val isUserMessage = message.startsWith("${viewModel.userName.value}:")
+                                    val displayText = if (isUserMessage) {
+                                        message.removePrefix("${viewModel.userName.value}:").trimStart()
+                                    } else {
+                                        message.removePrefix("${viewModel.assistantName.value}:").trimStart()
+                                    }
+                                    val isLoading = !isUserMessage && message.endsWith(": ") && isGenerating
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = if (isUserMessage) Arrangement.End else Arrangement.Start
+                                    ) {
+                                        MessageBubble(
+                                            text = if (isLoading) "..." else displayText,
+                                            isUser = isUserMessage,
+                                            modifier = Modifier
+                                                .widthIn(max = 300.dp)
+                                                .padding(horizontal = 8.dp),
+                                            isLoading = isLoading
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -465,7 +518,6 @@ fun ChatScreen(
         }
     }
 
-    // Model selection dialog
     if (showModelDialog) {
         ModelSelectionDialog(
             viewModel = viewModel,

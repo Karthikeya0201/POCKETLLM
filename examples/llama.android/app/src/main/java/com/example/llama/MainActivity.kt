@@ -18,13 +18,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
 import android.text.format.Formatter
 import android.util.Log
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.core.content.getSystemService
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -66,7 +65,7 @@ class MainActivity : ComponentActivity() {
             viewModel.log("RECORD_AUDIO permission granted")
         } else {
             viewModel.log("RECORD_AUDIO permission denied")
-            Log.w("MainActivity", "RECORD_AUDIO permission denied")
+            Log.w("MainActivity", "Storage permissions denied: $isGranted")
             if (!shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) {
                 Log.d("MainActivity", "RECORD_AUDIO permission permanently denied, directing to settings")
                 openAppSettings()
@@ -156,33 +155,33 @@ class MainActivity : ComponentActivity() {
         val total = Formatter.formatFileSize(this, availableMemory().totalMem)
         viewModel.log("Current memory: $free / $total")
 
-        val extFilesDir = getExternalFilesDir(null)
+        // Use context.filesDir for storing downloaded models
+        val modelsDir = File(filesDir, "models").apply { mkdirs() }
         val models = listOf(
             Downloadable(
                 name = "Orca Mini-3B",
                 source = Uri.parse("https://huggingface.co/Aryanne/Orca-Mini-3B-gguf/resolve/main/q4_0-orca-mini-3b.gguf?download=true"),
-                destination = File(extFilesDir, "q4_0-orca-mini-3b.gguf"),
+                destination = File(modelsDir, "q4_0-orca-mini-3b.gguf"),
                 size = 1.92f,
                 iconResId = R.drawable.ic_orca_icon
             ),
             Downloadable(
                 name = "Gemma 3-4B",
                 source = Uri.parse("https://huggingface.co/google/gemma-3-4b/resolve/main/gemma-3-4b.q4_0.gguf?download=true"),
-                destination = File(extFilesDir, "gemma-3-4b.q4_0.gguf"),
+                destination = File(modelsDir, "gemma-3-4b.q4_0.gguf"),
                 size = 2.32f,
                 iconResId = R.drawable.ic_gemma_icon
             ),
             Downloadable(
                 name = "Mistral-7B",
                 source = Uri.parse("https://huggingface.co/mistralai/Mixtral-8x7B-v0.1/resolve/main/mixtral-8x7b.q4_0.gguf?download=true"),
-                destination = File(extFilesDir, "mixtral-8x7b.q4_0.gguf"),
+                destination = File(modelsDir, "mixtral-8x7b.q4_0.gguf"),
                 size = 4.12f,
                 iconResId = R.drawable.ic_mistral_icon
             )
         )
 
         val prefs = getSharedPreferences("PocketLLMPrefs", Context.MODE_PRIVATE)
-        viewModel.loadPrefs(prefs)
 
         setContent {
             LlamaAndroidTheme {
@@ -236,15 +235,12 @@ fun AppNavigation(
     requestPermissions: (Array<String>) -> Unit
 ) {
     val navController = rememberNavController()
-    val isModelLoaded by viewModel.isModelLoaded
-    val isFirstLaunch = prefs.getBoolean("isFirstLaunch", true)
-
     val startDestination = when {
-        isFirstLaunch -> {
+        viewModel.isFirstLaunch.value -> {
             Log.d("MainActivity", "Starting at setup screen due to first launch")
             "setup"
         }
-        !isModelLoaded -> {
+        !viewModel.isModelLoaded.value -> {
             Log.d("MainActivity", "Starting at setup screen due to model not loaded")
             "setup"
         }
@@ -264,17 +260,17 @@ fun AppNavigation(
                 viewModel = viewModel,
                 downloadManager = downloadManager,
                 modelOptions = models,
-                isFirstLaunch = isFirstLaunch,
+                isFirstLaunch = prefs.getBoolean("isFirstLaunch", true),
                 prefs = prefs
             )
         }
         composable("chat") {
-            if (isModelLoaded) {
+            if (viewModel.isModelLoaded.value) {
                 ChatScreen(
                     navController = navController,
                     viewModel = viewModel,
                     clipboardManager = clipboardManager,
-                    modelOptions = models, // Pass the models list here
+                    modelOptions = models,
                     requestPermissions = requestPermissions
                 )
             } else {
