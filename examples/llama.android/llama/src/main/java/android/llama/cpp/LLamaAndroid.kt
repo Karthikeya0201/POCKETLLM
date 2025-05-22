@@ -89,6 +89,7 @@ class LLamaAndroid {
                     Log.d(tag, "bench(): $state")
                     bench_model(state.context, state.model, state.batch, pp, tg, pl, nr)
                 }
+
                 else -> throw IllegalStateException("No model loaded")
             }
         }
@@ -113,6 +114,7 @@ class LLamaAndroid {
                     Log.i(tag, "Loaded model $pathToModel with context size $contextSize")
                     threadLocalState.set(State.Loaded(model, context, batch, sampler))
                 }
+
                 else -> throw IllegalStateException("Model already loaded")
             }
         }
@@ -126,31 +128,20 @@ class LLamaAndroid {
     fun send(message: String, formatChat: Boolean = false): Flow<String> = flow {
         when (val state = threadLocalState.get()) {
             is State.Loaded -> {
-                val systemPrompt = """
-                    You are $assistantName, a helpful AI assistant. Follow these guidelines:
-                    - Be concise yet thorough
-                    - Use clear, simple language
-                    - Format responses neatly with proper spacing
-                    - If unsure, say "I don't know" rather than guessing
-                    - For coding questions, provide complete examples
-                    - Always maintain a helpful, professional tone
-                """.trimIndent()
-
-                val formattedMessage = "$systemPrompt\n$userName: $message\n$assistantName:"
-
-                val ncur = IntVar(completion_init(state.context, state.batch, formattedMessage, formatChat, nlen))
+                val ncur =
+                    IntVar(completion_init(state.context, state.batch, message, formatChat, nlen))
                 while (ncur.value <= nlen) {
                     val str = completion_loop(state.context, state.batch, state.sampler, nlen, ncur)
-                    if (str == null) {
-                        break
-                    }
+                    if (str == null) break
                     emit(str)
                 }
                 kv_cache_clear(state.context)
             }
+
             else -> {}
         }
     }.flowOn(runLoop)
+
 
     suspend fun unload() {
         withContext(runLoop) {
@@ -162,6 +153,7 @@ class LLamaAndroid {
                     free_sampler(state.sampler)
                     threadLocalState.set(State.Idle)
                 }
+
                 else -> {}
             }
         }
@@ -189,8 +181,13 @@ class LLamaAndroid {
         }
 
         private sealed interface State {
-            data object Idle: State
-            data class Loaded(val model: Long, val context: Long, val batch: Long, val sampler: Long): State
+            data object Idle : State
+            data class Loaded(
+                val model: Long,
+                val context: Long,
+                val batch: Long,
+                val sampler: Long
+            ) : State
         }
 
         private val _instance: LLamaAndroid = LLamaAndroid()

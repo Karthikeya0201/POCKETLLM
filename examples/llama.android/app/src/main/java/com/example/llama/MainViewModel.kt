@@ -8,22 +8,25 @@ import android.util.Log
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.State
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.llama.handler.IntentCall
 import com.example.llama.model.ChatHistory
 import android.llama.cpp.LLamaAndroid
-import androidx.compose.runtime.State
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
 import java.util.*
+
 
 class MainViewModel(private val context: Context) : ViewModel() {
     private val sharedPrefs = context.getSharedPreferences("PocketLLMPrefs", Context.MODE_PRIVATE)
@@ -50,7 +53,8 @@ class MainViewModel(private val context: Context) : ViewModel() {
     private val _isModelLoaded = mutableStateOf(false)
     val isModelLoaded: State<Boolean> = _isModelLoaded
 
-    private val _downloadedModels: MutableState<List<String>> = mutableStateOf(emptyList()) // Changed to List<String>
+    private val _downloadedModels: MutableState<List<String>> =
+        mutableStateOf(emptyList()) // Changed to List<String>
     val downloadedModels: State<List<String>> = _downloadedModels
 
     private val _isInitialized = mutableStateOf(false)
@@ -116,24 +120,40 @@ class MainViewModel(private val context: Context) : ViewModel() {
         loadChatHistories()
         try {
             llama.initialize(userName.value, assistantName.value)
-            Log.d("MainViewModel", "LLaMA initialized with userName=${userName.value}, assistantName=${assistantName.value}")
+            Log.d(
+                "MainViewModel",
+                "LLaMA initialized with userName=${userName.value}, assistantName=${assistantName.value}"
+            )
         } catch (e: Exception) {
             Log.e("MainViewModel", "Failed to initialize LLaMA: ${e.stackTraceToString()}")
             importError.value = "Failed to initialize model library: ${e.message}"
         }
-        Log.d("MainViewModel", "Loaded preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}, downloadedModels=${_downloadedModels.value}")
+        Log.d(
+            "MainViewModel",
+            "Loaded preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}, downloadedModels=${_downloadedModels.value}"
+        )
 
         // Always attempt to reload the model if modelPath exists
         if (modelPath.value.isNotEmpty()) {
             val modelFile = File(modelPath.value)
-            Log.d("MainViewModel", "Checking model file: path=${modelPath.value}, exists=${modelFile.exists()}, absolutePath=${modelFile.absolutePath}, size=${if (modelFile.exists()) modelFile.length() else 0} bytes")
+            Log.d(
+                "MainViewModel",
+                "Checking model file: path=${modelPath.value}, exists=${modelFile.exists()}, absolutePath=${modelFile.absolutePath}, size=${if (modelFile.exists()) modelFile.length() else 0} bytes"
+            )
             if (modelFile.exists()) {
                 selectedUri.value = Uri.fromFile(modelFile)
-                selectedFileName.value = getModelDisplayName(modelPath.value.substringAfterLast('/'))
-                Log.d("MainViewModel", "Initialized selectedUri=${selectedUri.value}, selectedFileName=${selectedFileName.value}")
+                selectedFileName.value =
+                    getModelDisplayName(modelPath.value.substringAfterLast('/'))
+                Log.d(
+                    "MainViewModel",
+                    "Initialized selectedUri=${selectedUri.value}, selectedFileName=${selectedFileName.value}"
+                )
                 try {
                     isLoadingModel.value = true
-                    Log.d("MainViewModel", "Attempting to reload model from path: ${modelPath.value}")
+                    Log.d(
+                        "MainViewModel",
+                        "Attempting to reload model from path: ${modelPath.value}"
+                    )
                     try {
                         llama.unload()
                         Log.d("MainViewModel", "Unloaded any existing model")
@@ -142,9 +162,13 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     }
                     llama.load(modelPath.value)
                     setModelLoaded(true)
-                    Log.d("MainViewModel", "Model successfully reloaded: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
+                    Log.d(
+                        "MainViewModel",
+                        "Model successfully reloaded: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}"
+                    )
                 } catch (e: Exception) {
-                    importError.value = "Failed to reload model on startup: ${e.stackTraceToString()}"
+                    importError.value =
+                        "Failed to reload model on startup: ${e.stackTraceToString()}"
                     setModelLoaded(false)
                     modelPath.value = ""
                     selectedUri.value = null
@@ -154,7 +178,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
                         putString("selectedFileName", "")
                         apply()
                     }
-                    Log.e("MainViewModel", "Model reload error on startup: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
+                    Log.e(
+                        "MainViewModel",
+                        "Model reload error on startup: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}"
+                    )
                 } finally {
                     isLoadingModel.value = false
                 }
@@ -163,19 +190,26 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 modelPath.value = ""
                 selectedUri.value = null
                 selectedFileName.value = null
-                importError.value = "Model file not found at ${modelPath.value}. Please select a new model."
+                importError.value =
+                    "Model file not found at ${modelPath.value}. Please select a new model."
                 with(sharedPrefs.edit()) {
                     putString("modelPath", "")
                     putString("selectedFileName", "")
                     apply()
                 }
-                Log.e("MainViewModel", "Model file does not exist at saved path: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
+                Log.e(
+                    "MainViewModel",
+                    "Model file does not exist at saved path: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}"
+                )
             }
         } else {
             setModelLoaded(false)
             selectedUri.value = null
             selectedFileName.value = null
-            Log.d("MainViewModel", "No model path saved in preferences, isModelLoaded=${isModelLoaded.value}")
+            Log.d(
+                "MainViewModel",
+                "No model path saved in preferences, isModelLoaded=${isModelLoaded.value}"
+            )
         }
     }
 
@@ -190,12 +224,18 @@ class MainViewModel(private val context: Context) : ViewModel() {
             putString("selectedFileName", selectedFileName.value)
             apply()
         }
-        Log.d("MainViewModel", "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${_isModelLoaded.value}, downloadedModels=${_downloadedModels.value}, selectedFileName=${selectedFileName.value}")
+        Log.d(
+            "MainViewModel",
+            "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${_isModelLoaded.value}, downloadedModels=${_downloadedModels.value}, selectedFileName=${selectedFileName.value}"
+        )
         try {
             llama.initialize(userName.value, assistantName.value)
             Log.d("MainViewModel", "LLaMA re-initialized after saving preferences")
         } catch (e: Exception) {
-            Log.e("MainViewModel", "Failed to re-initialize LLaMA after saving preferences: ${e.stackTraceToString()}")
+            Log.e(
+                "MainViewModel",
+                "Failed to re-initialize LLaMA after saving preferences: ${e.stackTraceToString()}"
+            )
         }
     }
 
@@ -209,9 +249,15 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     val json = file.readText()
                     val chatHistory = Json.decodeFromString<ChatHistory>(json)
                     chatHistories.add(chatHistory)
-                    Log.d("MainViewModel", "Loaded chat: ${chatHistory.title} (ID: ${chatHistory.id})")
+                    Log.d(
+                        "MainViewModel",
+                        "Loaded chat: ${chatHistory.title} (ID: ${chatHistory.id})"
+                    )
                 } catch (e: Exception) {
-                    Log.e("MainViewModel", "Failed to load chat history from ${file.name}: ${e.stackTraceToString()}")
+                    Log.e(
+                        "MainViewModel",
+                        "Failed to load chat history from ${file.name}: ${e.stackTraceToString()}"
+                    )
                 }
             }
             chatHistories.sortByDescending { it.date }
@@ -269,7 +315,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
 
     suspend fun loadChat(chatId: String) {
         while (!_isInitialized.value) {
-            Log.d("MainViewModel", "Waiting for initialization to complete before loading chat $chatId")
+            Log.d(
+                "MainViewModel",
+                "Waiting for initialization to complete before loading chat $chatId"
+            )
             delay(100)
         }
 
@@ -282,7 +331,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     messages.clear()
                     messages.addAll(chatHistory.messages)
                     currentChatId = chatId
-                    Log.d("MainViewModel", "Loaded chat $chatId with ${chatHistory.messages.size} messages")
+                    Log.d(
+                        "MainViewModel",
+                        "Loaded chat $chatId with ${chatHistory.messages.size} messages"
+                    )
                 } catch (e: Exception) {
                     Log.e("MainViewModel", "Failed to load chat $chatId: ${e.stackTraceToString()}")
                     throw e
@@ -307,7 +359,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     }
                     Log.d("MainViewModel", "Deleted chat $chatId, remaining: ${chatHistories.size}")
                 } catch (e: Exception) {
-                    Log.e("MainViewModel", "Failed to delete chat $chatId: ${e.stackTraceToString()}")
+                    Log.e(
+                        "MainViewModel",
+                        "Failed to delete chat $chatId: ${e.stackTraceToString()}"
+                    )
                 }
             } else {
                 Log.e("MainViewModel", "Chat file not found for deletion: ${file.absolutePath}")
@@ -324,34 +379,49 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 when (modelSource) {
                     is String -> {
                         val file = File(modelSource)
-                        Log.d("MainViewModel", "setModelPath: modelSource=$modelSource, file.exists=${file.exists()}")
+                        Log.d(
+                            "MainViewModel",
+                            "setModelPath: modelSource=$modelSource, file.exists=${file.exists()}"
+                        )
                         if (file.exists()) {
                             if (!file.name.endsWith(".gguf", ignoreCase = true)) {
                                 importError.value = "Model file must be a .gguf file: ${file.name}"
                                 setModelLoaded(false)
-                                Log.e("MainViewModel", "Invalid file type: ${file.name}, isModelLoaded=${isModelLoaded.value}")
+                                Log.e(
+                                    "MainViewModel",
+                                    "Invalid file type: ${file.name}, isModelLoaded=${isModelLoaded.value}"
+                                )
                                 return@launch
                             }
                             modelPathStr = modelSource
                         } else {
                             importError.value = "Model file does not exist: $modelSource"
                             setModelLoaded(false)
-                            Log.e("MainViewModel", "Model file does not exist: $modelSource, isModelLoaded=${isModelLoaded.value}")
+                            Log.e(
+                                "MainViewModel",
+                                "Model file does not exist: $modelSource, isModelLoaded=${isModelLoaded.value}"
+                            )
                             return@launch
                         }
                     }
+
                     is Uri -> {
                         val uri = modelSource
-                        val fileName = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                            if (cursor.moveToFirst()) {
-                                val displayNameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                                if (displayNameIndex != -1) cursor.getString(displayNameIndex) else null
-                            } else null
-                        } ?: uri.lastPathSegment ?: "model.gguf"
+                        val fileName = context.contentResolver.query(uri, null, null, null, null)
+                            ?.use { cursor ->
+                                if (cursor.moveToFirst()) {
+                                    val displayNameIndex =
+                                        cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                                    if (displayNameIndex != -1) cursor.getString(displayNameIndex) else null
+                                } else null
+                            } ?: uri.lastPathSegment ?: "model.gguf"
                         if (!fileName.endsWith(".gguf", ignoreCase = true)) {
                             importError.value = "Please select a .gguf file"
                             setModelLoaded(false)
-                            Log.e("MainViewModel", "Invalid file type: $fileName, isModelLoaded=${isModelLoaded.value}")
+                            Log.e(
+                                "MainViewModel",
+                                "Invalid file type: $fileName, isModelLoaded=${isModelLoaded.value}"
+                            )
                             return@launch
                         }
                         val internalFile = File(context.filesDir, fileName)
@@ -361,9 +431,15 @@ class MainViewModel(private val context: Context) : ViewModel() {
                                     inputStream.copyTo(outputStream)
                                 }
                             }
-                            Log.d("MainViewModel", "Copied file from URI: $uri, new path: ${internalFile.absolutePath}")
+                            Log.d(
+                                "MainViewModel",
+                                "Copied file from URI: $uri, new path: ${internalFile.absolutePath}"
+                            )
                         } else {
-                            Log.d("MainViewModel", "File already exists, skipping copy: ${internalFile.absolutePath}")
+                            Log.d(
+                                "MainViewModel",
+                                "File already exists, skipping copy: ${internalFile.absolutePath}"
+                            )
                         }
                         if (internalFile.exists()) {
                             modelPathStr = internalFile.absolutePath
@@ -374,10 +450,14 @@ class MainViewModel(private val context: Context) : ViewModel() {
                             return@launch
                         }
                     }
+
                     else -> {
                         importError.value = "Invalid model source: $modelSource"
                         setModelLoaded(false)
-                        Log.e("MainViewModel", "Invalid model source: $modelSource, isModelLoaded=${isModelLoaded.value}")
+                        Log.e(
+                            "MainViewModel",
+                            "Invalid model source: $modelSource, isModelLoaded=${isModelLoaded.value}"
+                        )
                         return@launch
                     }
                 }
@@ -386,9 +466,13 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     llama.initialize(userName.value, assistantName.value)
                     Log.d("MainViewModel", "LLaMA initialized before loading model")
                 } catch (e: Exception) {
-                    importError.value = "Failed to initialize model library before loading: ${e.message}"
+                    importError.value =
+                        "Failed to initialize model library before loading: ${e.message}"
                     setModelLoaded(false)
-                    Log.e("MainViewModel", "Failed to initialize LLaMA before loading: ${e.stackTraceToString()}")
+                    Log.e(
+                        "MainViewModel",
+                        "Failed to initialize LLaMA before loading: ${e.stackTraceToString()}"
+                    )
                     return@launch
                 }
                 if (_isModelLoaded.value) {
@@ -406,12 +490,18 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 selectedUri.value = Uri.fromFile(File(modelPathStr))
                 setModelLoaded(true)
                 savePrefs(sharedPrefs)
-                Log.d("MainViewModel", "Model loaded successfully: $modelPathStr, selectedFileName=${selectedFileName.value}, isModelLoaded=${isModelLoaded.value}")
+                Log.d(
+                    "MainViewModel",
+                    "Model loaded successfully: $modelPathStr, selectedFileName=${selectedFileName.value}, isModelLoaded=${isModelLoaded.value}"
+                )
             } catch (e: Exception) {
                 importError.value = "Failed to load model: ${e.stackTraceToString()}"
                 setModelLoaded(false)
                 savePrefs(sharedPrefs)
-                Log.e("MainViewModel", "Model load error: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
+                Log.e(
+                    "MainViewModel",
+                    "Model load error: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}"
+                )
             } finally {
                 isLoadingModel.value = false
             }
@@ -421,7 +511,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
     fun addDownloadedModel(modelName: String) {
         _downloadedModels.value = _downloadedModels.value + modelName
         savePrefs(sharedPrefs)
-        Log.d("MainViewModel", "Added downloaded model: $modelName, total: ${_downloadedModels.value}")
+        Log.d(
+            "MainViewModel",
+            "Added downloaded model: $modelName, total: ${_downloadedModels.value}"
+        )
     }
 
     fun startNewChat() {
@@ -434,12 +527,18 @@ class MainViewModel(private val context: Context) : ViewModel() {
             isGenerating.value = false
             if (!_isModelLoaded.value && modelPath.value.isNotEmpty() && File(modelPath.value).exists()) {
                 try {
-                    Log.d("MainViewModel", "Model not loaded, attempting to load: ${modelPath.value}")
+                    Log.d(
+                        "MainViewModel",
+                        "Model not loaded, attempting to load: ${modelPath.value}"
+                    )
                     try {
                         llama.initialize(userName.value, assistantName.value)
                         Log.d("MainViewModel", "LLaMA initialized in startNewChat")
                     } catch (e: Exception) {
-                        Log.e("MainViewModel", "Failed to initialize LLaMA in startNewChat: ${e.stackTraceToString()}")
+                        Log.e(
+                            "MainViewModel",
+                            "Failed to initialize LLaMA in startNewChat: ${e.stackTraceToString()}"
+                        )
                     }
                     try {
                         llama.unload()
@@ -449,13 +548,22 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     }
                     llama.load(modelPath.value)
                     setModelLoaded(true)
-                    Log.d("MainViewModel", "Model loaded successfully in startNewChat: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
+                    Log.d(
+                        "MainViewModel",
+                        "Model loaded successfully in startNewChat: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}"
+                    )
                 } catch (e: Exception) {
                     setModelLoaded(false)
-                    Log.e("MainViewModel", "Model load error in startNewChat: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
+                    Log.e(
+                        "MainViewModel",
+                        "Model load error in startNewChat: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}"
+                    )
                 }
             } else {
-                Log.d("MainViewModel", "Model already loaded or no model to load: isModelLoaded=${_isModelLoaded.value}, modelPath=${modelPath.value}")
+                Log.d(
+                    "MainViewModel",
+                    "Model already loaded or no model to load: isModelLoaded=${_isModelLoaded.value}, modelPath=${modelPath.value}"
+                )
             }
             Log.d("MainViewModel", "New chat started, messages cleared")
         }
@@ -472,36 +580,97 @@ class MainViewModel(private val context: Context) : ViewModel() {
         sendJob = viewModelScope.launch {
             try {
                 Log.d("MainViewModel", "Sending prompt: $prompt")
-                Log.d("MainViewModel", "Current model state: modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
-                if (modelPath.value.isEmpty() || !isModelLoaded.value) {
+                if (modelPath.value.isEmpty()) {
                     messages.add("${assistantName.value}: No model loaded. Please load a model from Settings.")
                     isGenerating.value = false
-                    Log.d("MainViewModel", "No model loaded: modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
+                    Log.d("MainViewModel", "No model loaded")
                     return@launch
                 }
 
+                val intent = when {
+                    Regex("(?i)\\bcall\\b").containsMatchIn(prompt) -> "call"
+                    Regex("(?i)\\bcalendar\\b").containsMatchIn(prompt) -> "calendar"
+                    else -> "main"
+                }
+
+                // val confidence = prediction.confidence
                 val responseBuilder = StringBuilder()
                 messages.add("${assistantName.value}: ")
-                Log.d("MainViewModel", "Added initial assistant message marker")
 
-                llama.send(prompt).collect { partialResponse ->
-                    responseBuilder.append(partialResponse)
-                    val currentResponse = responseBuilder.toString().trim()
+                if (intent == "main") {
+                    val systemPrompt = """
+                        You are ${assistantName.value}, a helpful AI assistant. Follow these guidelines:
+                        - Be concise yet thorough
+                        - Use clear, simple language
+                        - Format responses neatly with proper spacing
+                        - If unsure, say "I don't know" rather than guessing
+                        - For coding questions, provide complete examples
+                        - Always maintain a helpful, professional tone
+                    """.trimIndent()
 
-                    if (currentResponse.isNotEmpty() &&
-                        !currentResponse.endsWith("...") &&
-                        currentResponse != messages.lastOrNull()?.removePrefix("${assistantName.value}: ")?.trim()
-                    ) {
-                        val formattedResponse = currentResponse
-                            .replace("\n\n", "\n")
-                            .replace(Regex(" {2,}"), " ")
-                        if (messages.lastOrNull()?.startsWith("${assistantName.value}:") == true) {
-                            messages[messages.lastIndex] = "${assistantName.value}: $formattedResponse"
-                        } else {
-                            messages.add("${assistantName.value}: $formattedResponse")
+                    val formattedMessage =
+                        "$systemPrompt\n${userName.value}: $prompt\n${assistantName.value}:"
+
+                    llama.send(formattedMessage).collect { partialResponse ->
+                        responseBuilder.append(partialResponse)
+                        val currentResponse = responseBuilder.toString().trim()
+
+                        if (currentResponse.isNotEmpty() &&
+                            !currentResponse.endsWith("...") &&
+                            currentResponse != messages.lastOrNull()
+                                ?.removePrefix("${assistantName.value}: ")?.trim()
+                        ) {
+                            val formattedResponse = currentResponse
+                                .replace("\n\n", "\n")
+                            if (messages.lastOrNull()
+                                    ?.startsWith("${assistantName.value}:") == true
+                            ) {
+                                messages[messages.lastIndex] =
+                                    "${assistantName.value}: $formattedResponse"
+                            } else {
+                                messages.add("${assistantName.value}: $formattedResponse")
+                            }
+                            Log.d("MainViewModel", "Updated response: $formattedResponse")
                         }
-                        Log.d("MainViewModel", "Updated response: $formattedResponse")
                     }
+                } else if (intent == "call") {
+                    val systemPrompt = """
+                    You are a Caller Name Extractor. Follow these rules exactly:
+
+                    1. The User Prompt will give a call (e.g., "Call John").
+                    2. Extract ONLY the name of the person to call.
+                    3. Output MUST be in this 1-line format:
+                       Call <Name>
+                    6. Do NOT include any other text.
+                    7. Do NOT explain, greet, or comment. Output only the required format.
+                    """.trimIndent()
+
+                    val formattedMessage = "$systemPrompt \nUser Prompt:$prompt\n:"
+                    llama.send(formattedMessage).collect { partialResponse ->
+                        responseBuilder.append(partialResponse)
+                        if (responseBuilder.length > 50) return@collect
+                    }
+                    val callPerson = responseBuilder.toString().trim()
+
+                    // Extract the name from "Call <Name>"
+                    val nameToCall = callPerson.removePrefix("Call ").trim()
+                    if (nameToCall.isBlank()) {
+                        messages[messages.lastIndex] =
+                            "${assistantName.value}: Invalid contact name"
+                    }
+
+                    // Initiate the call using IntentCall
+                    val intentCall = IntentCall(context) // Ensure context is available
+                    val callSuccess = intentCall.initiateCall(nameToCall)
+
+                    // Update UI with the result
+                    messages[messages.lastIndex] = if (callSuccess) {
+                        "${assistantName.value}: Calling $nameToCall..."
+                    } else {
+                        "${assistantName.value}: Failed to call $nameToCall"
+                    }
+                } else {
+                    responseBuilder.append("Noob")
                 }
 
                 val fullResponse = responseBuilder.toString().trim()
@@ -509,11 +678,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     messages[messages.lastIndex] = "${assistantName.value}: $fullResponse"
                 }
                 Log.d("MainViewModel", "Response completed: $fullResponse")
-            } catch (e: Exception) {
-                if (e !is CancellationException) {
-                    messages.add("${assistantName.value}: Error: ${e.message}")
-                    Log.e("MainViewModel", "Send error: ${e.stackTraceToString()}")
-                }
             } finally {
                 isGenerating.value = false
                 sendJob = null
@@ -549,7 +713,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 setModelLoaded(false)
                 Log.d("MainViewModel", "ViewModel cleared, unloaded LLM")
             } catch (e: Exception) {
-                Log.e("MainViewModel", "Error unloading LLM on ViewModel clear: ${e.stackTraceToString()}")
+                Log.e(
+                    "MainViewModel",
+                    "Error unloading LLM on ViewModel clear: ${e.stackTraceToString()}"
+                )
             }
         }
     }
