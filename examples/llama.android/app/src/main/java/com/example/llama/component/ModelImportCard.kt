@@ -69,6 +69,7 @@ fun ModelImportCard(
     var copyJob by remember { mutableStateOf<Job?>(null) }
     var selectedModel by remember { mutableStateOf<String?>(null) }
     var hasUserSelectedModel by remember { mutableStateOf(false) }
+    var shouldCopyFile by remember { mutableStateOf(false) } // New boolean state
 
     val previousModelName by remember { mutableStateOf(viewModel.selectedFileName.value) }
     val previousUri by remember { mutableStateOf(viewModel.selectedUri.value) }
@@ -82,14 +83,26 @@ fun ModelImportCard(
             selectedModel = importedModel
             hasUserSelectedModel = true
             viewModel.showImportSuccess.value = true
+            viewModel.selectedUri.value = null
+            viewModel.selectedFileName.value = null
         } else {
             importedModel = null
             importedFileName = null
             selectedModel = null
             hasUserSelectedModel = false
             viewModel.showImportSuccess.value = false
+            viewModel.selectedUri.value = null
+            viewModel.selectedFileName.value = null
         }
         Log.d("ModelImportCard", "Initialized: downloadedModels=${viewModel.downloadedModels.value}, importedModel=$importedModel, selectedModel=$selectedModel")
+    }
+
+    // Reset shouldCopyFile when the composable is disposed (dialog is closed)
+    DisposableEffect(Unit) {
+        onDispose {
+            shouldCopyFile = false
+            Log.d("ModelImportCard", "DisposableEffect: shouldCopyFile reset to false on dialog close")
+        }
     }
 
     val undownloadedModels by remember(viewModel.downloadedModels) {
@@ -99,76 +112,92 @@ fun ModelImportCard(
     }
 
     fun copySelectedFile() {
-        viewModel.selectedUri.value?.let { uri ->
-            val rawFileName = viewModel.selectedFileName.value ?: return@let
-            val internalFile = File(context.filesDir, rawFileName)
+        if(shouldCopyFile) {
+            viewModel.selectedUri.value?.let { uri ->
+                val rawFileName = viewModel.selectedFileName.value ?: return@let
+                val internalFile = File(context.filesDir, rawFileName)
 
-            if (internalFile.exists()) {
-                Log.d("ModelImportCard", "File already exists: $rawFileName, skipping copy")
-                importedModel = viewModel.getModelDisplayName(rawFileName)
-                importedFileName = rawFileName
-                selectedModel = importedModel
-                hasUserSelectedModel = true
-                viewModel.selectedUri.value = null
-                viewModel.selectedFileName.value = null
-                viewModel.showImportSuccess.value = true
-                return@let
-            }
+                // Check if file already exists
+                if (internalFile.exists()) {
+                    Log.d("ModelImportCard", "File already exists: $rawFileName, skipping copy")
+                    importedModel = viewModel.getModelDisplayName(rawFileName)
+                    importedFileName = rawFileName
+                    selectedModel = importedModel
+                    hasUserSelectedModel = true
+                    shouldCopyFile = false
+                    return@let
+                }
+                // Only copy if shouldCopyFile is true
+                if (!shouldCopyFile) {
+                    Log.d(
+                        "ModelImportCard",
+                        "shouldCopyFile is false, skipping copy for $rawFileName"
+                    )
+                    return@let
+                }
 
-            val job = scope.launch {
-                try {
-                    isCopying = true
-                    copyingFileName = rawFileName
-                    copyProgress = 0f
-                    val fileSize = context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: 0L
-                    withContext(Dispatchers.IO) {
-                        context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                            FileOutputStream(internalFile).use { outputStream ->
-                                val buffer = ByteArray(8192)
-                                var bytesCopied = 0L
-                                var bytesRead: Int
-                                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                                    outputStream.write(buffer, 0, bytesRead)
-                                    bytesCopied += bytesRead
-                                    if (fileSize > 0) {
-                                        withContext(Dispatchers.Main) {
-                                            copyProgress = bytesCopied.toFloat() / fileSize
+                val job = scope.launch {
+                    try {
+                        isCopying = true
+                        copyingFileName = rawFileName
+                        copyProgress = 0f
+                        val fileSize = context.contentResolver.openFileDescriptor(uri, "r")
+                            ?.use { it.statSize } ?: 0L
+                        withContext(Dispatchers.IO) {
+                            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                                FileOutputStream(internalFile).use { outputStream ->
+                                    val buffer = ByteArray(8192)
+                                    var bytesCopied = 0L
+                                    var bytesRead: Int
+                                    while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                        outputStream.write(buffer, 0, bytesRead)
+                                        bytesCopied += bytesRead
+                                        if (fileSize > 0) {
+                                            withContext(Dispatchers.Main) {
+                                                copyProgress = bytesCopied.toFloat() / fileSize
+                                            }
                                         }
                                     }
                                 }
-                            }
-                        } ?: throw Exception("Failed to open input stream for URI: $uri")
-                    }
-                    if (internalFile.exists()) {
-                        importedModel = viewModel.getModelDisplayName(rawFileName)
-                        importedFileName = rawFileName
-                        selectedModel = importedModel
-                        hasUserSelectedModel = true
-                        viewModel.showImportSuccess.value = true
-                        Log.d("ModelImportCard", "File copied successfully: $rawFileName, path=${internalFile.absolutePath}, size=${internalFile.length()} bytes")
-                    } else {
-                        viewModel.importError.value = "Failed to copy model file: $rawFileName"
+                            } ?: throw Exception("Failed to open input stream for URI: $uri")
+                        }
+                        if (internalFile.exists()) {
+                            importedModel = viewModel.getModelDisplayName(rawFileName)
+                            importedFileName = rawFileName
+                            selectedModel = importedModel
+                            hasUserSelectedModel = true
+                            viewModel.showImportSuccess.value = true
+                            shouldCopyFile = false
+                            Log.d(
+                                "ModelImportCard",
+                                "File copied successfully: $rawFileName, path=${internalFile.absolutePath}, size=${internalFile.length()} bytes"
+                            )
+                        } else {
+                            viewModel.importError.value = "Failed to copy model file: $rawFileName"
+                            importedModel = null
+                            importedFileName = null
+                            selectedModel = previousModelName
+                            hasUserSelectedModel = false
+                            shouldCopyFile = false
+                            Log.e("ModelImportCard", "File copy failed: $rawFileName")
+                        }
+                    } catch (e: Exception) {
+                        viewModel.importError.value = "Error copying file: ${e.message}"
                         importedModel = null
                         importedFileName = null
                         selectedModel = previousModelName
                         hasUserSelectedModel = false
-                        Log.e("ModelImportCard", "File copy failed: $rawFileName")
+                        shouldCopyFile = false
+                        Log.e("ModelImportCard", "File copy error: ${e.stackTraceToString()}")
+                    } finally {
+                        isCopying = false
+                        copyingFileName = null
+                        copyProgress = 0f
+                        copyJob = null
                     }
-                } catch (e: Exception) {
-                    viewModel.importError.value = "Error copying file: ${e.message}"
-                    importedModel = null
-                    importedFileName = null
-                    selectedModel = previousModelName
-                    hasUserSelectedModel = false
-                    Log.e("ModelImportCard", "File copy error: ${e.stackTraceToString()}")
-                } finally {
-                    isCopying = false
-                    copyingFileName = null
-                    copyProgress = 0f
-                    copyJob = null
                 }
+                copyJob = job
             }
-            copyJob = job
         }
     }
 
@@ -188,6 +217,7 @@ fun ModelImportCard(
                 hasUserSelectedModel = false
                 importedModel = if (previousModelName != null && !viewModel.downloadedModels.value.contains(previousModelName)) previousModelName else null
                 importedFileName = if (previousModelName != null && !viewModel.downloadedModels.value.contains(previousModelName)) previousModelName else null
+                shouldCopyFile = false
                 Log.d("ModelImportCard", "Cancelled copy, restored state: selectedModel=$selectedModel, importedModel=$importedModel")
             }
         }
@@ -207,14 +237,16 @@ fun ModelImportCard(
         viewModel.setModelLoaded(checkModelInLocalStorage(context))
     }
 
-    LaunchedEffect(viewModel.selectedUri.value) {
-        if (viewModel.selectedUri.value != null && !viewModel.showImportSuccess.value) {
+    LaunchedEffect(viewModel.selectedUri.value, viewModel.selectedFileName.value) {
+        if (viewModel.selectedUri.value != null && viewModel.selectedFileName.value != null && !viewModel.showImportSuccess.value) {
+            shouldCopyFile = true // Set to true when a new file is picked
             val rawFileName = viewModel.selectedFileName.value
             if (rawFileName != null && !File(context.filesDir, rawFileName).exists()) {
                 copySelectedFile()
             } else {
                 viewModel.selectedUri.value = null
                 viewModel.selectedFileName.value = null
+                shouldCopyFile = false
             }
         }
     }

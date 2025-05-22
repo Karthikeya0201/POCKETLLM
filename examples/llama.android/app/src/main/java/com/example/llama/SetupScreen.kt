@@ -63,6 +63,8 @@ fun SetupScreen(
             loadedModel = Pair(displayName, false)
             isModelReady = true
             Log.d("SetupScreen", "Initialized with loaded model: $displayName, isModelReady=$isModelReady")
+        }else{
+            Log.d("Setupscreen", "No model loaded")
         }
     }
 

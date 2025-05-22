@@ -55,6 +55,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.TileMode
 import java.io.File
+import android.content.ClipData
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 
 // Updated sealed class to remove Initializing state
 sealed class ChatLoadingState {
@@ -90,6 +93,9 @@ fun ChatScreen(
             }
         }
     }
+
+    // Track which message is long-pressed (null if none)
+    var longPressedMessage by remember { mutableStateOf<String?>(null) }
 
     // Determine the loaded model
     val loadedModel by remember(viewModel.selectedFileName.value) {
@@ -484,7 +490,15 @@ fun ChatScreen(
                             LazyColumn(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(
+                                            onTap = {
+                                                longPressedMessage = null
+                                                Log.d("ChatScreen", "Tapped on LazyColumn, hiding user copy icon")
+                                            }
+                                        )
+                                    },
                                 state = scrollState,
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
@@ -496,18 +510,91 @@ fun ChatScreen(
                                         message.removePrefix("${viewModel.assistantName.value}:").trimStart()
                                     }
                                     val isLoading = !isUserMessage && message.endsWith(": ") && isGenerating
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = if (isUserMessage) Arrangement.End else Arrangement.Start
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 8.dp),
+                                        horizontalAlignment = if (isUserMessage) Alignment.End else Alignment.Start
                                     ) {
-                                        MessageBubble(
-                                            text = if (isLoading) "..." else displayText,
-                                            isUser = isUserMessage,
+                                        Column(
                                             modifier = Modifier
-                                                .widthIn(max = 300.dp)
-                                                .padding(horizontal = 8.dp),
-                                            isLoading = isLoading
-                                        )
+                                                .widthIn(max = 300.dp),
+                                            horizontalAlignment = Alignment.End
+                                        ) {
+                                            MessageBubble(
+                                                text = if (isLoading) "..." else displayText,
+                                                isUser = isUserMessage,
+                                                modifier = Modifier
+                                                    .widthIn(max = 300.dp)
+                                                    .pointerInput(Unit) {
+                                                        if (isUserMessage) {
+                                                            detectTapGestures(
+                                                                onLongPress = {
+                                                                    longPressedMessage = message
+                                                                    Log.d("ChatScreen", "Long-pressed user message: $displayText")
+                                                                },
+                                                                onPress = {
+                                                                    val wasLongPressed = longPressedMessage == message
+                                                                    tryAwaitRelease()
+                                                                    if (wasLongPressed) {
+                                                                        longPressedMessage = null
+                                                                        Log.d("ChatScreen", "Released long-press on user message")
+                                                                    }
+                                                                }
+                                                            )
+                                                        }
+                                                    },
+                                                isLoading = isLoading
+                                            )
+                                            if (isUserMessage && longPressedMessage == message) {
+                                                IconButton(
+                                                    onClick = {
+                                                        clipboardManager.setPrimaryClip(
+                                                            ClipData.newPlainText("User Message", displayText)
+                                                        )
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Message copied to clipboard",
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                        Log.d("ChatScreen", "Copied user message to clipboard: $displayText")
+                                                        longPressedMessage = null // Hide icon after click
+                                                    },
+                                                    modifier = Modifier
+                                                        .size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Filled.ContentCopy,
+                                                        contentDescription = "Copy Message",
+                                                        tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            } else if (!isUserMessage && !isLoading) {
+                                                IconButton(
+                                                    onClick = {
+                                                        clipboardManager.setPrimaryClip(
+                                                            ClipData.newPlainText("Assistant Message", displayText)
+                                                        )
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Message copied to clipboard",
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                        Log.d("ChatScreen", "Copied assistant message to clipboard: $displayText")
+                                                    },
+                                                    modifier = Modifier
+                                                        .size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Filled.ContentCopy,
+                                                        contentDescription = "Copy Message",
+                                                        tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -525,7 +612,6 @@ fun ChatScreen(
             onDismiss = { showModelDialog = false },
             onModelSelected = { path, isDownloaded ->
                 viewModel.setModelPath(path)
-                // No need to set selectedFileName here; setModelPath in MainViewModel already handles it
                 Log.d("ChatScreen", "Model selected: path=$path, isDownloaded=$isDownloaded")
             }
         )
