@@ -61,6 +61,7 @@ fun SetupScreen(
     var isAssistantNameFocused by remember { mutableStateOf(false) }
     var pendingDialogOpen by remember { mutableStateOf(false) }
     var calendarPermissionDenied by remember { mutableStateOf(false) }
+    var isLoadingCalendars by remember { mutableStateOf(false) }
     val calendarList by viewModel.calendarList
     val selectedCalendarId by viewModel.selectedCalendarId
 
@@ -80,6 +81,8 @@ fun SetupScreen(
 
     // Load calendars into viewModel.calendarList
     fun loadCalendars(context: android.content.Context, viewModel: MainViewModel) {
+        isLoadingCalendars = true
+        Log.d("SetupScreen", "Starting to load calendars")
         try {
             viewModel.calendarList.value = mutableListOf()
             val projection = arrayOf(
@@ -114,6 +117,9 @@ fun SetupScreen(
         } catch (e: Exception) {
             Log.e("SetupScreen", "Error loading calendars: ${e.stackTraceToString()}")
             viewModel.calendarList.value = emptyList()
+        } finally {
+            isLoadingCalendars = false
+            Log.d("SetupScreen", "Finished loading calendars, isLoadingCalendars=$isLoadingCalendars")
         }
     }
 
@@ -131,7 +137,7 @@ fun SetupScreen(
         }
     }
 
-    // Check and request calendar permissions
+    // Check and request calendar permissions on initial load
     LaunchedEffect(Unit) {
         Log.d("SetupScreen", "Checking calendar permissions")
         if (hasCalendarPermission(context)) {
@@ -143,6 +149,14 @@ fun SetupScreen(
                     Manifest.permission.WRITE_CALENDAR
                 )
             )
+        }
+    }
+
+    // Retry loading calendars when permissions are granted
+    LaunchedEffect(calendarPermissionDenied) {
+        if (!calendarPermissionDenied && hasCalendarPermission(context)) {
+            Log.d("SetupScreen", "Retrying calendar load after permission change")
+            loadCalendars(context, viewModel)
         }
     }
 
@@ -313,8 +327,12 @@ fun SetupScreen(
         Log.d("SetupScreen", "Rendering ExposedDropdownMenuBox, expanded=$expanded, calendarList.size=${calendarList.size}")
         ExposedDropdownMenuBox(
             expanded = expanded,
-            onExpandedChange = {
-                expanded = it
+            onExpandedChange = { newExpanded ->
+                expanded = newExpanded
+                if (newExpanded && hasCalendarPermission(context)) {
+                    Log.d("SetupScreen", "Dropdown opened, refreshing calendars")
+                    loadCalendars(context, viewModel)
+                }
                 Log.d("SetupScreen", "Dropdown expanded state changed to: $expanded")
             },
             modifier = Modifier
@@ -322,7 +340,10 @@ fun SetupScreen(
                 .padding(horizontal = 4.dp)
         ) {
             OutlinedTextField(
-                value = calendarList.find { it.first == selectedCalendarId }?.second ?: "Select Calendar",
+                value = when {
+                    isLoadingCalendars -> "Loading calendars..."
+                    else -> calendarList.find { it.first == selectedCalendarId }?.second ?: "Select Calendar"
+                },
                 onValueChange = {},
                 readOnly = true,
                 label = {
@@ -342,7 +363,14 @@ fun SetupScreen(
                     )
                 },
                 trailingIcon = {
-                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                    if (isLoadingCalendars) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                    }
                 },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFF6750A4),
@@ -363,7 +391,16 @@ fun SetupScreen(
                 },
                 modifier = Modifier.background(Color.White) // Ensure dropdown is visible
             ) {
-                if (calendarList.isEmpty()) {
+                if (isLoadingCalendars) {
+                    DropdownMenuItem(
+                        text = { Text("Loading calendars...") },
+                        onClick = { /* No action during loading */ },
+                        enabled = false,
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Log.d("SetupScreen", "Displayed 'Loading calendars...' in dropdown")
+                } else if (calendarList.isEmpty()) {
                     DropdownMenuItem(
                         text = { Text("No calendars available") },
                         onClick = { expanded = false },
