@@ -3,6 +3,7 @@ package com.example.llama
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import android.provider.CalendarContract
 import android.provider.OpenableColumns
 import android.util.Log
 import androidx.compose.runtime.MutableState
@@ -14,7 +15,6 @@ import androidx.lifecycle.viewModelScope
 import com.example.llama.handler.IntentCall
 import com.example.llama.model.ChatHistory
 import android.llama.cpp.LLamaAndroid
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -25,6 +25,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
+import java.text.SimpleDateFormat
 import java.util.*
 
 class MainViewModel(private val context: Context) : ViewModel() {
@@ -32,7 +33,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
     var userName = mutableStateOf("")
     var assistantName = mutableStateOf("")
     val message = mutableStateOf("")
-    val messages = mutableStateListOf<String>()
+    val messages = mutableStateListOf<String>() // Reverted to List<String>
     val chatHistories = mutableStateListOf<ChatHistory>()
     val modelPath = mutableStateOf("")
     val importError = mutableStateOf("")
@@ -54,8 +55,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
     private val _isModelLoaded = mutableStateOf(false)
     val isModelLoaded: State<Boolean> = _isModelLoaded
 
-    private val _downloadedModels: MutableState<List<String>> =
-        mutableStateOf(emptyList())
+    private val _downloadedModels: MutableState<List<String>> = mutableStateOf(emptyList())
     val downloadedModels: State<List<String>> = _downloadedModels
 
     private val _isInitialized = mutableStateOf(false)
@@ -143,8 +143,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
             )
             if (modelFile.exists()) {
                 selectedUri.value = Uri.fromFile(modelFile)
-                selectedFileName.value =
-                    getModelDisplayName(modelPath.value.substringAfterLast('/'))
+                selectedFileName.value = getModelDisplayName(modelPath.value.substringAfterLast('/'))
                 Log.d(
                     "MainViewModel",
                     "Initialized selectedUri=${selectedUri.value}, selectedFileName=${selectedFileName.value}"
@@ -168,8 +167,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                         "Model successfully reloaded: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}"
                     )
                 } catch (e: Exception) {
-                    importError.value =
-                        "Failed to reload model on startup: ${e.stackTraceToString()}"
+                    importError.value = "Failed to reload model on startup: ${e.stackTraceToString()}"
                     setModelLoaded(false)
                     modelPath.value = ""
                     selectedUri.value = null
@@ -191,8 +189,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 modelPath.value = ""
                 selectedUri.value = null
                 selectedFileName.value = null
-                importError.value =
-                    "Model file not found at ${modelPath.value}. Please select a new model."
+                importError.value = "Model file not found at ${modelPath.value}. Please select a new model."
                 with(sharedPrefs.edit()) {
                     putString("modelPath", "")
                     putString("selectedFileName", "")
@@ -276,7 +273,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
         val chatId = currentChatId ?: UUID.randomUUID().toString()
 
         val userPrefix = "${userName.value}: "
-        val firstMsg = messages.first()
+        val firstMsg = messages.firstOrNull { it.startsWith(userPrefix) } ?: messages.firstOrNull() ?: ""
         val trimmedTitle = if (firstMsg.startsWith(userPrefix)) {
             firstMsg.removePrefix(userPrefix).trimStart()
         } else {
@@ -412,8 +409,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                         val fileName = context.contentResolver.query(uri, null, null, null, null)
                             ?.use { cursor ->
                                 if (cursor.moveToFirst()) {
-                                    val displayNameIndex =
-                                        cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                                    val displayNameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                                     if (displayNameIndex != -1) cursor.getString(displayNameIndex) else null
                                 } else null
                             } ?: uri.lastPathSegment ?: "model.gguf"
@@ -468,8 +464,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     llama.initialize(userName.value, assistantName.value)
                     Log.d("MainViewModel", "LLaMA initialized before loading model")
                 } catch (e: Exception) {
-                    importError.value =
-                        "Failed to initialize model library before loading: ${e.message}"
+                    importError.value = "Failed to initialize model library before loading: ${e.message}"
                     setModelLoaded(false)
                     Log.e(
                         "MainViewModel",
@@ -571,6 +566,46 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
     }
 
+    private fun formatChatTemplate(
+        messages: List<Pair<String, String>>,
+        addGenerationPrompt: Boolean = false
+    ): String {
+        val builder = StringBuilder()
+        messages.forEachIndexed { index, (role, content) ->
+            if (index == 0 && role != "system") {
+                builder.append("<|im_start|>system You are a helpful assistant.<|im_end|> ")
+            }
+            builder.append("<|im_start|>$role $content<|im_end|> ")
+        }
+        if (addGenerationPrompt) {
+            builder.append("<|im_start|>assistant ")
+        }
+        return builder.toString().trim()
+    }
+
+    // Helper function to convert messages to role-based pairs
+    private fun messagesToPairs(messages: List<String>, currentPrompt: String? = null): List<Pair<String, String>> {
+        val pairs = mutableListOf<Pair<String, String>>()
+        messages.forEach { msg ->
+            when {
+                msg.startsWith("${userName.value}: ") -> {
+                    pairs.add("user" to msg.removePrefix("${userName.value}: ").trim())
+                }
+                msg.startsWith("${assistantName.value}: ") -> {
+                    pairs.add("assistant" to msg.removePrefix("${assistantName.value}: ").trim())
+                }
+                else -> {
+                    // Assume assistant if no clear prefix (fallback)
+                    pairs.add("assistant" to msg.trim())
+                }
+            }
+        }
+        if (currentPrompt != null) {
+            pairs.add("user" to currentPrompt.trim())
+        }
+        return pairs
+    }
+
     fun send(prompt: String = message.value.trim()) {
         if (prompt.isBlank()) {
             Log.d("MainViewModel", "Empty prompt, skipping send")
@@ -609,10 +644,15 @@ class MainViewModel(private val context: Context) : ViewModel() {
                         - Always maintain a helpful, professional tone
                     """.trimIndent()
 
-                    val formattedMessage =
-                        "$systemPrompt\n${userName.value}: $prompt\n${assistantName.value}:"
+                    // Convert messages to pairs for chat template
+                    val chatMessages = messagesToPairs(messages.dropLast(1), prompt).toMutableList()
+                    if (chatMessages.none { it.first == "system" }) {
+                        chatMessages.add(0, "system" to systemPrompt)
+                    }
+                    val formattedMessage = formatChatTemplate(chatMessages, addGenerationPrompt = true)
+                    Log.d("MainViewModel", "Formatted main prompt: $formattedMessage")
 
-                    llama.send(formattedMessage).collect { partialResponse ->
+                    llama.send(formattedMessage, formatChat = true).collect { partialResponse ->
                         responseBuilder.append(partialResponse)
                         val currentResponse = responseBuilder.toString().trim()
 
@@ -621,13 +661,9 @@ class MainViewModel(private val context: Context) : ViewModel() {
                             currentResponse != messages.lastOrNull()
                                 ?.removePrefix("${assistantName.value}: ")?.trim()
                         ) {
-                            val formattedResponse = currentResponse
-                                .replace("\n\n", "\n")
-                            if (messages.lastOrNull()
-                                    ?.startsWith("${assistantName.value}:") == true
-                            ) {
-                                messages[messages.lastIndex] =
-                                    "${assistantName.value}: $formattedResponse"
+                            val formattedResponse = currentResponse.replace("\n\n", "\n")
+                            if (messages.lastOrNull()?.startsWith("${assistantName.value}: ") == true) {
+                                messages[messages.lastIndex] = "${assistantName.value}: $formattedResponse"
                             } else {
                                 messages.add("${assistantName.value}: $formattedResponse")
                             }
@@ -636,46 +672,40 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     }
                 } else if (intent == "call") {
                     val systemPrompt = """
-                    You are a Caller Name Extractor. Follow these rules exactly:
-
-                    1. The User Prompt will give a call (e.g., "Call John").
-                    2. Extract ONLY the name of the person to call.
-                    3. Output MUST be in this 1-line format:
-                       Call <Name>
-                    6. Do NOT include any other text.
-                    7. Do NOT explain, greet, or comment. Output only the required format.
+                        You are a Caller Name Extractor. Follow these rules exactly:
+                        1. The User Prompt will give a call (e.g., "Call John").
+                        2. Extract ONLY the name of the person to call.
+                        3. Output MUST be in this 1-line format:
+                           Call <Name>
+                        6. Do NOT include any other text.
+                        7. Do NOT explain, greet, or comment. Output only the required format.
                     """.trimIndent()
 
-                    val formattedMessage = "$systemPrompt \nUser Prompt:$prompt\n:"
-                    llama.send(formattedMessage).collect { partialResponse ->
+                    val chatMessages = listOf(
+                        "system" to systemPrompt,
+                        "user" to prompt
+                    )
+                    val formattedMessage = formatChatTemplate(chatMessages, addGenerationPrompt = true)
+                    Log.d("MainViewModel", "Formatted call prompt: $formattedMessage")
+
+                    llama.send(formattedMessage, formatChat = true).collect { partialResponse ->
                         responseBuilder.append(partialResponse)
-                        if (responseBuilder.length > 50) return@collect
                     }
                     val callPerson = responseBuilder.toString().trim()
 
                     val nameToCall = callPerson.removePrefix("Call ").trim()
                     if (nameToCall.isBlank()) {
-                        messages[messages.lastIndex] =
-                            "${assistantName.value}: Invalid contact name"
-                    }
-
-                    val intentCall = IntentCall(context)
-                    val callSuccess = intentCall.initiateCall(nameToCall)
-
-                    messages[messages.lastIndex] = if (callSuccess) {
-                        "${assistantName.value}: Calling $nameToCall..."
+                        messages[messages.lastIndex] = "${assistantName.value}: Invalid contact name"
                     } else {
-                        "${assistantName.value}: Failed to call $nameToCall"
+                        val intentCall = IntentCall(context)
+                        val callSuccess = intentCall.initiateCall(nameToCall)
+                        messages[messages.lastIndex] = if (callSuccess) {
+                            "${assistantName.value}: Calling $nameToCall..."
+                        } else {
+                            "${assistantName.value}: Failed to call $nameToCall"
+                        }
                     }
-                } else {
-                    responseBuilder.append("Noob")
                 }
-
-                val fullResponse = responseBuilder.toString().trim()
-                if (fullResponse.isNotEmpty() && messages.lastOrNull() != "${assistantName.value}: $fullResponse") {
-                    messages[messages.lastIndex] = "${assistantName.value}: $fullResponse"
-                }
-                Log.d("MainViewModel", "Response completed: $fullResponse")
             } finally {
                 isGenerating.value = false
                 sendJob = null
@@ -689,8 +719,8 @@ class MainViewModel(private val context: Context) : ViewModel() {
         sendJob?.cancel()
         isGenerating.value = false
         messages.removeAll {
-            it.startsWith("${assistantName.value}:") &&
-                (it.length < 10 || it.endsWith("..."))
+            it.startsWith("${assistantName.value}: ") &&
+                (it.length < "${assistantName.value}: ".length + 10 || it.endsWith("..."))
         }
         Log.d("MainViewModel", "Paused, cleaned partial responses")
     }

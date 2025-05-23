@@ -22,7 +22,7 @@ class IntentCall(private val context: Context) {
         private const val REQUEST_CONTACTS_PERMISSION = 2
         private val NUMBER_CLEANER = Regex("[^0-9+]")
         private val NAME_REGEX = Regex(
-            """(?i)(?:call|dial|phone|contact)\s+([a-zA-Z\s]+)""",
+            """(?i)(?:(?:call|dial|phone|contact)\s+)?([\p{L}\s\-']+)""",
             setOf(RegexOption.IGNORE_CASE)
         )
     }
@@ -50,8 +50,11 @@ class IntentCall(private val context: Context) {
     }
 
     private fun extractContactName(command: String): String {
+        Log.d(TAG, "Extracting contact name from command: $command")
         val matchResult = NAME_REGEX.find(command)
-        return matchResult?.groups?.get(1)?.value?.trim() ?: ""
+        val name = matchResult?.groups?.get(1)?.value?.trim() ?: ""
+        Log.d(TAG, "Extracted name: '$name'")
+        return name
     }
 
     private fun queryContactsAndProceed(name: String): Boolean {
