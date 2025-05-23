@@ -36,7 +36,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
     val importError = mutableStateOf("")
     val isLoadingModel = mutableStateOf(false)
     val isGenerating = mutableStateOf(false)
-    val showImportSuccess = mutableStateOf(false) // Added state for import success
+    val showImportSuccess = mutableStateOf(false)
     private lateinit var chatsDir: File
     private val llama = LLamaAndroid.instance().apply {
         setContextSize(8192)
@@ -50,7 +50,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
     private val _isModelLoaded = mutableStateOf(false)
     val isModelLoaded: State<Boolean> = _isModelLoaded
 
-    private val _downloadedModels: MutableState<List<String>> = mutableStateOf(emptyList()) // Changed to List<String>
+    private val _downloadedModels: MutableState<List<String>> = mutableStateOf(emptyList())
     val downloadedModels: State<List<String>> = _downloadedModels
 
     private val _isInitialized = mutableStateOf(false)
@@ -67,11 +67,59 @@ class MainViewModel(private val context: Context) : ViewModel() {
         viewModelScope.launch {
             try {
                 loadPrefs(sharedPrefs)
+                // Always attempt to reload the model if modelPath exists
+                if (modelPath.value.isNotEmpty()) {
+                    val modelFile = File(modelPath.value)
+                    Log.d("MainViewModel", "Checking model file: path=${modelPath.value}, exists=${modelFile.exists()}, absolutePath=${modelFile.absolutePath}, size=${if (modelFile.exists()) modelFile.length() else 0} bytes")
+                    if (modelFile.exists()) {
+                        selectedUri.value = Uri.fromFile(modelFile)
+                        selectedFileName.value = getModelDisplayName(modelPath.value.substringAfterLast('/'))
+                        Log.d("MainViewModel", "Initialized selectedUri=${selectedUri.value}, selectedFileName=${selectedFileName.value}")
+                        try {
+                            isLoadingModel.value = true
+                            Log.d("MainViewModel", "Attempting to reload model from path: ${modelPath.value}")
+                            try {
+                                llama.unload()
+                                Log.d("MainViewModel", "Unloaded any existing model")
+                            } catch (e: Exception) {
+                                Log.e("MainViewModel", "Error unloading model: ${e.stackTraceToString()}")
+                            }
+                            llama.load(modelPath.value)
+                            setModelLoaded(true)
+                            Log.d("MainViewModel", "Model successfully reloaded: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
+                        } catch (e: Exception) {
+                            importError.value = "Failed to reload model on startup: ${e.message}"
+                            setModelLoaded(false)
+                            // Do not clear modelPath to allow retry in ChatScreen
+                            Log.e("MainViewModel", "Model reload error on startup: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
+                        } finally {
+                            isLoadingModel.value = false
+                        }
+                    } else {
+                        setModelLoaded(false)
+                        importError.value = "Model file not found at ${modelPath.value}. Please select a new model."
+                        modelPath.value = ""
+                        selectedUri.value = null
+                        selectedFileName.value = null
+                        with(sharedPrefs.edit()) {
+                            putString("modelPath", "")
+                            putString("selectedFileName", "")
+                            apply()
+                        }
+                        Log.e("MainViewModel", "Model file not found at saved path: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
+                    }
+                } else {
+                    setModelLoaded(false)
+                    selectedUri.value = null
+                    selectedFileName.value = null
+                    Log.d("MainViewModel", "No model path saved in preferences, isModelLoaded=${isModelLoaded.value}")
+                }
+                _isInitialized.value = true
+                Log.d("MainViewModel", "Initialization complete, isModelLoaded=${isModelLoaded.value}")
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Initialization failed: ${e.stackTraceToString()}")
+                _isInitialized.value = true
             }
-            _isInitialized.value = true
-            Log.d("MainViewModel", "Initialization complete, isModelLoaded=${isModelLoaded.value}")
         }
     }
 
@@ -89,7 +137,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
     }
 
     fun getModelDisplayName(fileName: String): String {
-        // Remove .gguf suffix and handle naming conventions
         return fileName.removeSuffix(".gguf").replace("-", " ").let { name ->
             name.split(" ").joinToString(" ") { word ->
                 word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
@@ -122,61 +169,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
             importError.value = "Failed to initialize model library: ${e.message}"
         }
         Log.d("MainViewModel", "Loaded preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}, downloadedModels=${_downloadedModels.value}")
-
-        // Always attempt to reload the model if modelPath exists
-        if (modelPath.value.isNotEmpty()) {
-            val modelFile = File(modelPath.value)
-            Log.d("MainViewModel", "Checking model file: path=${modelPath.value}, exists=${modelFile.exists()}, absolutePath=${modelFile.absolutePath}, size=${if (modelFile.exists()) modelFile.length() else 0} bytes")
-            if (modelFile.exists()) {
-                selectedUri.value = Uri.fromFile(modelFile)
-                selectedFileName.value = getModelDisplayName(modelPath.value.substringAfterLast('/'))
-                Log.d("MainViewModel", "Initialized selectedUri=${selectedUri.value}, selectedFileName=${selectedFileName.value}")
-                try {
-                    isLoadingModel.value = true
-                    Log.d("MainViewModel", "Attempting to reload model from path: ${modelPath.value}")
-                    try {
-                        llama.unload()
-                        Log.d("MainViewModel", "Unloaded any existing model")
-                    } catch (e: Exception) {
-                        Log.e("MainViewModel", "Error unloading model: ${e.stackTraceToString()}")
-                    }
-                    llama.load(modelPath.value)
-                    setModelLoaded(true)
-                    Log.d("MainViewModel", "Model successfully reloaded: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
-                } catch (e: Exception) {
-                    importError.value = "Failed to reload model on startup: ${e.stackTraceToString()}"
-                    setModelLoaded(false)
-                    modelPath.value = ""
-                    selectedUri.value = null
-                    selectedFileName.value = null
-                    with(sharedPrefs.edit()) {
-                        putString("modelPath", "")
-                        putString("selectedFileName", "")
-                        apply()
-                    }
-                    Log.e("MainViewModel", "Model reload error on startup: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
-                } finally {
-                    isLoadingModel.value = false
-                }
-            } else {
-                setModelLoaded(false)
-                modelPath.value = ""
-                selectedUri.value = null
-                selectedFileName.value = null
-                importError.value = "Model file not found at ${modelPath.value}. Please select a new model."
-                with(sharedPrefs.edit()) {
-                    putString("modelPath", "")
-                    putString("selectedFileName", "")
-                    apply()
-                }
-                Log.e("MainViewModel", "Model file does not exist at saved path: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
-            }
-        } else {
-            setModelLoaded(false)
-            selectedUri.value = null
-            selectedFileName.value = null
-            Log.d("MainViewModel", "No model path saved in preferences, isModelLoaded=${isModelLoaded.value}")
-        }
     }
 
     fun savePrefs(prefs: SharedPreferences) {
@@ -355,7 +347,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                             return@launch
                         }
                         val internalFile = File(context.filesDir, fileName)
-                        if (!internalFile.exists()) { // Only copy if the file doesn't exist
+                        if (!internalFile.exists()) {
                             context.contentResolver.openInputStream(uri)?.use { inputStream ->
                                 FileOutputStream(internalFile).use { outputStream ->
                                     inputStream.copyTo(outputStream)
@@ -380,6 +372,12 @@ class MainViewModel(private val context: Context) : ViewModel() {
                         Log.e("MainViewModel", "Invalid model source: $modelSource, isModelLoaded=${isModelLoaded.value}")
                         return@launch
                     }
+                }
+                // Avoid reloading if the same model is selected
+                if (modelPath.value == modelPathStr && isModelLoaded.value) {
+                    Log.d("MainViewModel", "Model already loaded: $modelPathStr, skipping reload")
+                    isLoadingModel.value = false
+                    return@launch
                 }
                 Log.d("MainViewModel", "Attempting to load model from path: $modelPathStr")
                 try {
@@ -408,7 +406,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 savePrefs(sharedPrefs)
                 Log.d("MainViewModel", "Model loaded successfully: $modelPathStr, selectedFileName=${selectedFileName.value}, isModelLoaded=${isModelLoaded.value}")
             } catch (e: Exception) {
-                importError.value = "Failed to load model: ${e.stackTraceToString()}"
+                importError.value = "Failed to load model: ${e.message}"
                 setModelLoaded(false)
                 savePrefs(sharedPrefs)
                 Log.e("MainViewModel", "Model load error: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")

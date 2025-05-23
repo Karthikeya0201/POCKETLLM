@@ -7,9 +7,14 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.keyframes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -17,12 +22,15 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.Text
-
+import androidx.compose.ui.text.AnnotatedString
+import kotlinx.coroutines.delay
 
 @Composable
 fun MessageBubble(
@@ -43,6 +51,13 @@ fun MessageBubble(
 
     val dotAnimatable = remember { Animatable(0f) }
 
+    // State to control the visibility of the "Copy" button
+    var showCopyButton by remember { mutableStateOf(false) }
+
+    // Clipboard manager to copy text
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
     LaunchedEffect(isLoading) {
         if (isLoading) {
             dotAnimatable.animateTo(
@@ -62,12 +77,36 @@ fun MessageBubble(
         }
     }
 
+    // Auto-hide the "Copy" button after 3 seconds
+    LaunchedEffect(showCopyButton) {
+        if (showCopyButton) {
+            delay(3000)
+            showCopyButton = false
+        }
+    }
+
     Box(modifier = modifier) {
+        // Main bubble with long press detection
         Box(
             modifier = Modifier
                 .background(bubbleColor, RoundedCornerShape(16.dp))
                 .padding(14.dp)
                 .align(Alignment.Center)
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onLongPress = {
+                            if (!isLoading) { // Only show copy button if not loading
+                                showCopyButton = true
+                            }
+                        },
+                        onTap = {
+                            // Hide the copy button if the user taps the bubble while it's visible
+                            if (showCopyButton) {
+                                showCopyButton = false
+                            }
+                        }
+                    )
+                }
         ) {
             if (isLoading) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -95,6 +134,34 @@ fun MessageBubble(
                     fontSize = 16.sp,
                     fontFamily = FontFamily.SansSerif,
                     fontWeight = FontWeight.Normal
+                )
+            }
+        }
+
+        // "Copy" button, shown above the bubble when long pressed
+        if (showCopyButton && !isLoading) {
+            Button(
+                onClick = {
+                    clipboardManager.setText(AnnotatedString(text))
+                    showCopyButton = false
+                    // Optional: Show a toast to confirm the text was copied
+                    android.widget.Toast.makeText(context, "Text copied!", android.widget.Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier
+                    .align(if (isUser) Alignment.TopEnd else Alignment.TopStart)
+                    .offset(y = (-40).dp)
+                    .shadow(4.dp, RoundedCornerShape(8.dp)),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = "Copy",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }

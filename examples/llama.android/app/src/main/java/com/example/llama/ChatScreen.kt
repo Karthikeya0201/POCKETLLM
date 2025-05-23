@@ -56,8 +56,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.TileMode
 import java.io.File
 import android.content.ClipData
+import android.content.Context
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+
+// Helper function to match ModelSelectionDialog
+private fun getModelFileName(modelName: String): String {
+    return "${modelName.lowercase().replace(" ", "_")}.gguf"
+}
 
 // Updated sealed class to remove Initializing state
 sealed class ChatLoadingState {
@@ -98,22 +104,56 @@ fun ChatScreen(
     var longPressedMessage by remember { mutableStateOf<String?>(null) }
 
     // Determine the loaded model
-    val loadedModel by remember(viewModel.selectedFileName.value) {
+    val loadedModel by remember(viewModel.modelPath.value, viewModel.isModelLoaded.value) {
         derivedStateOf {
-            val modelName = viewModel.selectedFileName.value
-            if (modelName.isNullOrEmpty()) null
-            else {
-                val isDownloaded = modelOptions.any { it.name == modelName }
+            if (viewModel.isModelLoaded.value && viewModel.modelPath.value.isNotEmpty()) {
+                val modelName = viewModel.getModelDisplayName(viewModel.modelPath.value.substringAfterLast('/'))
+                val isDownloaded = modelOptions.any { getModelFileName(it.name) == File(viewModel.modelPath.value).name }
                 Pair(modelName, isDownloaded)
+            } else {
+                null
             }
         }
     }
 
     LaunchedEffect(Unit) {
+        Log.d("ChatScreen", "Initial state: modelPath=${viewModel.modelPath.value}, isModelLoaded=${viewModel.isModelLoaded.value}, selectedFileName=${viewModel.selectedFileName.value}")
         viewModel.messages.clear()
         viewModel.currentChatId = null
         chatLoadingState = ChatLoadingState.Idle
         Log.d("ChatScreen", "Started fresh chat with no welcome message")
+
+        // Check and reload model if necessary
+        if (!viewModel.isModelLoaded.value && viewModel.modelPath.value.isNotEmpty()) {
+            val modelFile = File(viewModel.modelPath.value)
+            if (modelFile.exists()) {
+                Log.d("ChatScreen", "Attempting to reload model from path: ${viewModel.modelPath.value}")
+                try {
+                    viewModel.setModelPath(viewModel.modelPath.value)
+                    Log.d("ChatScreen", "Model reloaded successfully: ${viewModel.modelPath.value}")
+                } catch (e: Exception) {
+                    Log.e("ChatScreen", "Failed to reload model: ${e.stackTraceToString()}")
+                    viewModel.importError.value = "Failed to load model: ${e.message}"
+                    chatLoadingState = ChatLoadingState.Error("Please select a model to continue.")
+                }
+            } else {
+                Log.e("ChatScreen", "Model file not found: ${viewModel.modelPath.value}")
+                viewModel.importError.value = "Model file not found. Please select a new model."
+                viewModel.modelPath.value = ""
+                viewModel.setModelLoaded(false)
+                viewModel.savePrefs(context.getSharedPreferences("PocketLLMPrefs", Context.MODE_PRIVATE))
+            }
+        } else if (!viewModel.isModelLoaded.value) {
+            Log.d("ChatScreen", "No model loaded, prompting user to select one")
+            chatLoadingState = ChatLoadingState.Error("Please select a model to continue.")
+        }
+    }
+
+    LaunchedEffect(chatLoadingState) {
+        if (chatLoadingState is ChatLoadingState.Error && (chatLoadingState as ChatLoadingState.Error).message.contains("Please select a model")) {
+            showModelDialog = true
+            Log.d("ChatScreen", "Showing ModelSelectionDialog due to no model loaded")
+        }
     }
 
     LaunchedEffect(viewModel.isGenerating.value, viewModel.messages.size) {
@@ -603,17 +643,18 @@ fun ChatScreen(
                 }
             }
         }
-    }
 
-    if (showModelDialog) {
-        ModelSelectionDialog(
-            viewModel = viewModel,
-            modelOptions = modelOptions,
-            onDismiss = { showModelDialog = false },
-            onModelSelected = { path, isDownloaded ->
-                viewModel.setModelPath(path)
-                Log.d("ChatScreen", "Model selected: path=$path, isDownloaded=$isDownloaded")
-            }
-        )
+        if (showModelDialog) {
+            ModelSelectionDialog(
+                viewModel = viewModel,
+                modelOptions = modelOptions,
+                onDismiss = { showModelDialog = false },
+                onModelSelected = { path, isDownloaded ->
+                    viewModel.setModelPath(path)
+                    Log.d("ChatScreen", "Model selected: path=$path, isDownloaded=$isDownloaded")
+                    chatLoadingState = ChatLoadingState.Idle // Reset to allow chatting
+                }
+            )
+        }
     }
 }

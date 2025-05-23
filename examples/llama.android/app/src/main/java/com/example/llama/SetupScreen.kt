@@ -59,12 +59,14 @@ fun SetupScreen(
     // Initialize state only once when the composable is created
     LaunchedEffect(Unit) {
         if (viewModel.isModelLoaded.value && viewModel.modelPath.value.isNotEmpty()) {
-            val displayName = viewModel.selectedFileName.value ?: viewModel.getModelDisplayName(viewModel.modelPath.value.substringAfterLast('/'))
-            loadedModel = Pair(displayName, false)
+            val displayName = viewModel.getModelDisplayName(viewModel.modelPath.value.substringAfterLast('/'))
+            loadedModel = Pair(displayName, viewModel.downloadedModels.value.contains(displayName))
             isModelReady = true
             Log.d("SetupScreen", "Initialized with loaded model: $displayName, isModelReady=$isModelReady")
-        }else{
-            Log.d("Setupscreen", "No model loaded")
+        } else {
+            loadedModel = null
+            isModelReady = false
+            Log.d("SetupScreen", "No model loaded")
         }
     }
 

@@ -77,12 +77,13 @@ fun ModelImportCard(
     // Initialize state based on existing model only once
     LaunchedEffect(Unit) {
         val currentModel = viewModel.selectedFileName.value
-        if (currentModel != null && File(context.filesDir, currentModel).exists() && !viewModel.downloadedModels.value.contains(currentModel)) {
+        if (currentModel != null && File(context.filesDir, currentModel).exists() && viewModel.isModelLoaded.value) {
             importedModel = viewModel.getModelDisplayName(currentModel)
             importedFileName = currentModel
             selectedModel = importedModel
             hasUserSelectedModel = true
             viewModel.showImportSuccess.value = true
+            shouldCopyFile = false // Explicitly set to false for loaded models
             viewModel.selectedUri.value = null
             viewModel.selectedFileName.value = null
         } else {
@@ -91,10 +92,11 @@ fun ModelImportCard(
             selectedModel = null
             hasUserSelectedModel = false
             viewModel.showImportSuccess.value = false
+            shouldCopyFile = false // Ensure no copy is triggered
             viewModel.selectedUri.value = null
             viewModel.selectedFileName.value = null
         }
-        Log.d("ModelImportCard", "Initialized: downloadedModels=${viewModel.downloadedModels.value}, importedModel=$importedModel, selectedModel=$selectedModel")
+        Log.d("ModelImportCard", "Initialized: downloadedModels=${viewModel.downloadedModels.value}, importedModel=$importedModel, selectedModel=$selectedModel, shouldCopyFile=$shouldCopyFile")
     }
 
     // Reset shouldCopyFile when the composable is disposed (dialog is closed)
@@ -238,8 +240,8 @@ fun ModelImportCard(
     }
 
     LaunchedEffect(viewModel.selectedUri.value, viewModel.selectedFileName.value) {
-        if (viewModel.selectedUri.value != null && viewModel.selectedFileName.value != null && !viewModel.showImportSuccess.value) {
-            shouldCopyFile = true // Set to true when a new file is picked
+        if (viewModel.selectedUri.value != null && viewModel.selectedFileName.value != null && !viewModel.showImportSuccess.value && !viewModel.isModelLoaded.value) {
+            shouldCopyFile = true // Set to true only for new file selections
             val rawFileName = viewModel.selectedFileName.value
             if (rawFileName != null && !File(context.filesDir, rawFileName).exists()) {
                 copySelectedFile()
@@ -248,6 +250,8 @@ fun ModelImportCard(
                 viewModel.selectedFileName.value = null
                 shouldCopyFile = false
             }
+        } else {
+            shouldCopyFile = false // Ensure no copy is triggered if model is already loaded
         }
     }
 
@@ -510,6 +514,11 @@ fun ModelImportCard(
                             val absolutePath = file.absolutePath
                             val displayName = selectedModel!!
                             onSave(absolutePath, viewModel.downloadedModels.value.contains(selectedModel), displayName)
+                            // Reset state to prevent re-import
+                            shouldCopyFile = false
+                            viewModel.selectedUri.value = null
+                            viewModel.selectedFileName.value = null
+                            viewModel.showImportSuccess.value = false
                         } else {
                             viewModel.importError.value = "Selected model file does not exist: $importedFileName"
                             Log.e("ModelImportCard", "Model file does not exist: $importedFileName")
