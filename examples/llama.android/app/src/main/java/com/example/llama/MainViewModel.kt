@@ -27,7 +27,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.*
 
-
 class MainViewModel(private val context: Context) : ViewModel() {
     private val sharedPrefs = context.getSharedPreferences("PocketLLMPrefs", Context.MODE_PRIVATE)
     var userName = mutableStateOf("")
@@ -39,7 +38,9 @@ class MainViewModel(private val context: Context) : ViewModel() {
     val importError = mutableStateOf("")
     val isLoadingModel = mutableStateOf(false)
     val isGenerating = mutableStateOf(false)
-    val showImportSuccess = mutableStateOf(false) // Added state for import success
+    val showImportSuccess = mutableStateOf(false)
+    val calendarList = mutableStateOf<List<Pair<Long, String>>>(emptyList())
+    val selectedCalendarId = mutableStateOf<Long?>(null)
     private lateinit var chatsDir: File
     private val llama = LLamaAndroid.instance().apply {
         setContextSize(8192)
@@ -54,7 +55,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
     val isModelLoaded: State<Boolean> = _isModelLoaded
 
     private val _downloadedModels: MutableState<List<String>> =
-        mutableStateOf(emptyList()) // Changed to List<String>
+        mutableStateOf(emptyList())
     val downloadedModels: State<List<String>> = _downloadedModels
 
     private val _isInitialized = mutableStateOf(false)
@@ -93,7 +94,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
     }
 
     fun getModelDisplayName(fileName: String): String {
-        // Remove .gguf suffix and handle naming conventions
         return fileName.removeSuffix(".gguf").replace("-", " ").let { name ->
             name.split(" ").joinToString(" ") { word ->
                 word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
@@ -107,6 +107,8 @@ class MainViewModel(private val context: Context) : ViewModel() {
         modelPath.value = prefs.getString("modelPath", "") ?: ""
         _isModelLoaded.value = prefs.getBoolean("isModelLoaded", false)
         _isFirstLaunch.value = prefs.getBoolean("isFirstLaunch", true)
+        val calendarId = prefs.getLong("selectedCalendarId", -1L)
+        if (calendarId != -1L) selectedCalendarId.value = calendarId
         val downloadedModelsJson = prefs.getString("downloadedModels", null)
         _downloadedModels.value = if (downloadedModelsJson != null) {
             Json.decodeFromString<List<String>>(downloadedModelsJson)
@@ -130,10 +132,9 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
         Log.d(
             "MainViewModel",
-            "Loaded preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}, downloadedModels=${_downloadedModels.value}"
+            "Loaded preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}, downloadedModels=${_downloadedModels.value}, selectedCalendarId=${selectedCalendarId.value}"
         )
 
-        // Always attempt to reload the model if modelPath exists
         if (modelPath.value.isNotEmpty()) {
             val modelFile = File(modelPath.value)
             Log.d(
@@ -222,11 +223,12 @@ class MainViewModel(private val context: Context) : ViewModel() {
             putString("historyDir", chatsDir.parent ?: context.filesDir.absolutePath)
             putString("downloadedModels", Json.encodeToString(_downloadedModels.value))
             putString("selectedFileName", selectedFileName.value)
+            selectedCalendarId.value?.let { putLong("selectedCalendarId", it) }
             apply()
         }
         Log.d(
             "MainViewModel",
-            "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${_isModelLoaded.value}, downloadedModels=${_downloadedModels.value}, selectedFileName=${selectedFileName.value}"
+            "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${_isModelLoaded.value}, downloadedModels=${_downloadedModels.value}, selectedFileName=${selectedFileName.value}, selectedCalendarId=${selectedCalendarId.value}"
         )
         try {
             llama.initialize(userName.value, assistantName.value)
@@ -425,7 +427,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                             return@launch
                         }
                         val internalFile = File(context.filesDir, fileName)
-                        if (!internalFile.exists()) { // Only copy if the file doesn't exist
+                        if (!internalFile.exists()) {
                             context.contentResolver.openInputStream(uri)?.use { inputStream ->
                                 FileOutputStream(internalFile).use { outputStream ->
                                     inputStream.copyTo(outputStream)
@@ -593,7 +595,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     else -> "main"
                 }
 
-                // val confidence = prediction.confidence
                 val responseBuilder = StringBuilder()
                 messages.add("${assistantName.value}: ")
 
@@ -652,18 +653,15 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     }
                     val callPerson = responseBuilder.toString().trim()
 
-                    // Extract the name from "Call <Name>"
                     val nameToCall = callPerson.removePrefix("Call ").trim()
                     if (nameToCall.isBlank()) {
                         messages[messages.lastIndex] =
                             "${assistantName.value}: Invalid contact name"
                     }
 
-                    // Initiate the call using IntentCall
-                    val intentCall = IntentCall(context) // Ensure context is available
+                    val intentCall = IntentCall(context)
                     val callSuccess = intentCall.initiateCall(nameToCall)
 
-                    // Update UI with the result
                     messages[messages.lastIndex] = if (callSuccess) {
                         "${assistantName.value}: Calling $nameToCall..."
                     } else {

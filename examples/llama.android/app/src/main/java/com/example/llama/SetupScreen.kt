@@ -1,7 +1,11 @@
 package com.example.llama
 
+import android.Manifest
 import android.app.DownloadManager
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
+import android.database.Cursor
+import android.provider.CalendarContract
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
 import com.example.llama.component.ModelImportCard
 import com.example.llama.model.Downloadable
@@ -55,6 +60,96 @@ fun SetupScreen(
     var isUserNameFocused by remember { mutableStateOf(false) }
     var isAssistantNameFocused by remember { mutableStateOf(false) }
     var pendingDialogOpen by remember { mutableStateOf(false) }
+    var calendarPermissionDenied by remember { mutableStateOf(false) }
+    val calendarList by viewModel.calendarList
+    val selectedCalendarId by viewModel.selectedCalendarId
+
+    // Check if calendar permissions are granted
+    fun hasCalendarPermission(context: android.content.Context): Boolean {
+        val readGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_CALENDAR
+        ) == PackageManager.PERMISSION_GRANTED
+        val writeGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.WRITE_CALENDAR
+        ) == PackageManager.PERMISSION_GRANTED
+        Log.d("SetupScreen", "Calendar permissions - READ: $readGranted, WRITE: $writeGranted")
+        return readGranted && writeGranted
+    }
+
+    // Load calendars into viewModel.calendarList
+    fun loadCalendars(context: android.content.Context, viewModel: MainViewModel) {
+        try {
+            viewModel.calendarList.value = mutableListOf()
+            val projection = arrayOf(
+                CalendarContract.Calendars._ID,
+                CalendarContract.Calendars.CALENDAR_DISPLAY_NAME
+            )
+            val selection = "${CalendarContract.Calendars.VISIBLE} = 1"
+
+            val cursor: Cursor? = context.contentResolver.query(
+                CalendarContract.Calendars.CONTENT_URI,
+                projection,
+                selection,
+                null,
+                null
+            )
+
+            val calendars = mutableListOf<Pair<Long, String>>()
+            cursor?.use {
+                while (it.moveToNext()) {
+                    val id = it.getLong(0)
+                    val name = it.getString(1) ?: "Unnamed Calendar"
+                    calendars.add(id to name)
+                }
+            }
+            viewModel.calendarList.value = calendars
+            // Set default selection if none exists
+            if (calendars.isNotEmpty() && viewModel.selectedCalendarId.value == null) {
+                viewModel.selectedCalendarId.value = calendars[0].first
+                Log.d("SetupScreen", "Set default calendar ID: ${calendars[0].first}")
+            }
+            Log.d("SetupScreen", "Loaded ${calendars.size} calendars: ${calendars.joinToString { it.second }}")
+        } catch (e: Exception) {
+            Log.e("SetupScreen", "Error loading calendars: ${e.stackTraceToString()}")
+            viewModel.calendarList.value = emptyList()
+        }
+    }
+
+    // Permission launcher for calendar permissions
+    val calendarPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions.all { it.value }
+        calendarPermissionDenied = !granted
+        if (granted) {
+            Log.d("SetupScreen", "Calendar permissions granted")
+            loadCalendars(context, viewModel)
+        } else {
+            Log.d("SetupScreen", "Calendar permissions denied: $permissions")
+        }
+    }
+
+    // Check and request calendar permissions
+    LaunchedEffect(Unit) {
+        Log.d("SetupScreen", "Checking calendar permissions")
+        if (hasCalendarPermission(context)) {
+            loadCalendars(context, viewModel)
+        } else {
+            calendarPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.READ_CALENDAR,
+                    Manifest.permission.WRITE_CALENDAR
+                )
+            )
+        }
+    }
+
+    // Log calendarList changes for debugging
+    LaunchedEffect(calendarList) {
+        Log.d("SetupScreen", "calendarList updated: size=${calendarList.size}, content=${calendarList.joinToString { it.second }}")
+    }
 
     // Initialize state only once when the composable is created
     LaunchedEffect(Unit) {
@@ -63,8 +158,8 @@ fun SetupScreen(
             loadedModel = Pair(displayName, false)
             isModelReady = true
             Log.d("SetupScreen", "Initialized with loaded model: $displayName, isModelReady=$isModelReady")
-        }else{
-            Log.d("Setupscreen", "No model loaded")
+        } else {
+            Log.d("SetupScreen", "No model loaded")
         }
     }
 
@@ -213,13 +308,127 @@ fun SetupScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Calendar Selection Dropdown
+        var expanded by remember { mutableStateOf(false) }
+        Log.d("SetupScreen", "Rendering ExposedDropdownMenuBox, expanded=$expanded, calendarList.size=${calendarList.size}")
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = {
+                expanded = it
+                Log.d("SetupScreen", "Dropdown expanded state changed to: $expanded")
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp)
+        ) {
+            OutlinedTextField(
+                value = calendarList.find { it.first == selectedCalendarId }?.second ?: "Select Calendar",
+                onValueChange = {},
+                readOnly = true,
+                label = {
+                    Text(
+                        "Calendar",
+                        color = Color(0xFF6750A4),
+                        modifier = if (expanded || selectedCalendarId != null) {
+                            Modifier
+                                .background(
+                                    color = Color(0xFFFEF7FF),
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        } else {
+                            Modifier
+                        }
+                    )
+                },
+                trailingIcon = {
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF6750A4),
+                    unfocusedBorderColor = Color(0xFFCAC4D0),
+                    focusedLabelColor = Color(0xFF6750A4),
+                    unfocusedLabelColor = Color(0xFF6750A4).copy(alpha = 0.6f)
+                ),
+                shape = RoundedCornerShape(5.dp),
+                modifier = Modifier
+                    .menuAnchor()
+                    .fillMaxWidth()
+            )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = {
+                    expanded = false
+                    Log.d("SetupScreen", "Dropdown dismissed")
+                },
+                modifier = Modifier.background(Color.White) // Ensure dropdown is visible
+            ) {
+                if (calendarList.isEmpty()) {
+                    DropdownMenuItem(
+                        text = { Text("No calendars available") },
+                        onClick = { expanded = false },
+                        enabled = false,
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Log.d("SetupScreen", "Displayed 'No calendars available' in dropdown")
+                } else {
+                    calendarList.forEach { calendar: Pair<Long, String> ->
+                        DropdownMenuItem(
+                            text = { Text(calendar.second) },
+                            onClick = {
+                                viewModel.selectedCalendarId.value = calendar.first
+                                expanded = false
+                                Log.d("SetupScreen", "Selected calendar: ${calendar.second} (ID: ${calendar.first})")
+                            },
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        }
+
+        // Display permission denied message with retry option
+        if (calendarPermissionDenied) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Calendar permission denied. Please grant permissions.",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(
+                    onClick = {
+                        calendarPermissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.READ_CALENDAR,
+                                Manifest.permission.WRITE_CALENDAR
+                            )
+                        )
+                        Log.d("SetupScreen", "Retry permissions clicked")
+                    }
+                ) {
+                    Text("Retry")
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp)
                 .height(72.dp)
                 .clickable {
-                    if (!showModelDialog) { // Prevent multiple dialog openings
+                    if (!showModelDialog) {
                         pendingDialogOpen = true
                     }
                 },
@@ -414,26 +623,36 @@ fun SetupScreen(
                     }
                     Log.d("SetupScreen", "Navigated to ChatScreen after saving model")
                 },
-                enabled = isModelReady && viewModel.userName.value.isNotBlank() && viewModel.assistantName.value.isNotBlank(),
+                enabled = isModelReady && viewModel.userName.value.isNotBlank() &&
+                    viewModel.assistantName.value.isNotBlank() && selectedCalendarId != null,
                 shape = RoundedCornerShape(24.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isModelReady && viewModel.userName.value.isNotBlank() && viewModel.assistantName.value.isNotBlank()) PurplePrimary else Color.LightGray,
-                    contentColor = if (isModelReady && viewModel.userName.value.isNotBlank() && viewModel.assistantName.value.isNotBlank()) White else Color.Gray
+                    containerColor = if (isModelReady && viewModel.userName.value.isNotBlank() &&
+                        viewModel.assistantName.value.isNotBlank() && selectedCalendarId != null)
+                        PurplePrimary else Color.LightGray,
+                    contentColor = if (isModelReady && viewModel.userName.value.isNotBlank() &&
+                        viewModel.assistantName.value.isNotBlank() && selectedCalendarId != null)
+                        White else Color.Gray
                 ),
                 modifier = Modifier
                     .width(150.dp)
                     .height(48.dp)
             ) {
-                Text("Done", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "Done",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
 
     // Log SharedPreferences state after saving
-    LaunchedEffect(viewModel.modelPath.value) {
+    LaunchedEffect(viewModel.modelPath.value, viewModel.selectedCalendarId.value) {
         val prefsState = prefs.getString("modelPath", "") ?: ""
         val isModelLoaded = prefs.getBoolean("isModelLoaded", false)
-        Log.d("SetupScreen", "SharedPrefs after save: modelPath=$prefsState, isModelLoaded=$isModelLoaded")
+        val calendarId = prefs.getLong("selectedCalendarId", -1L)
+        Log.d("SetupScreen", "SharedPrefs after save: modelPath=$prefsState, isModelLoaded=$isModelLoaded, selectedCalendarId=$calendarId")
     }
 
     // Log isModelLoaded changes for debugging
@@ -444,5 +663,10 @@ fun SetupScreen(
     // Log showImportSuccess changes for debugging
     LaunchedEffect(viewModel.showImportSuccess.value) {
         Log.d("SetupScreen", "showImportSuccess changed: ${viewModel.showImportSuccess.value}")
+    }
+
+    // Log selectedCalendarId changes for debugging
+    LaunchedEffect(viewModel.selectedCalendarId.value) {
+        Log.d("SetupScreen", "selectedCalendarId changed: ${viewModel.selectedCalendarId.value}")
     }
 }
