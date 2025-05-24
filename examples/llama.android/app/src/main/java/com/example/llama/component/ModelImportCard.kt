@@ -146,7 +146,7 @@ fun ModelImportCard(
                         withContext(Dispatchers.IO) {
                             context.contentResolver.openInputStream(uri)?.use { inputStream ->
                                 FileOutputStream(internalFile).use { outputStream ->
-                                    val buffer = ByteArray(8192)
+                                    val buffer = ByteArray(65536) // Increased buffer size to 64KB
                                     var bytesCopied = 0L
                                     var bytesRead: Int
                                     while (inputStream.read(buffer).also { bytesRead = it } != -1) {
@@ -574,7 +574,7 @@ private fun ModelOptionItem(
                     withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(downloadedFileUri)?.use { inputStream ->
                             FileOutputStream(targetFile).use { outputStream ->
-                                val buffer = ByteArray(8192)
+                                val buffer = ByteArray(65536) // Increased buffer size to 64KB
                                 var bytesRead: Int
                                 while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                                     outputStream.write(buffer, 0, bytesRead)
