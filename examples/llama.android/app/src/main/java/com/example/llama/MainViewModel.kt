@@ -623,68 +623,92 @@ class MainViewModel(private val context: Context) : ViewModel() {
             Log.d("MainViewModel", "Empty prompt, skipping send")
             return
         }
+        // Set isGenerating and add placeholder message immediately to show loading bubble
         isGenerating.value = true
-        sendJob?.cancel()
         messages.add("${userName.value}: $prompt")
+        messages.add("${assistantName.value}: ") // Add placeholder for immediate loading bubble
+        sendJob?.cancel()
         sendJob = viewModelScope.launch {
             try {
                 Log.d("MainViewModel", "Sending prompt: $prompt")
                 if (modelPath.value.isEmpty()) {
-                    messages.add("${assistantName.value}: No model loaded. Please load a model from Settings.")
+                    messages[messages.lastIndex] =
+                        "${assistantName.value}: No model loaded. Please load a model from Settings."
                     isGenerating.value = false
                     Log.d("MainViewModel", "No model loaded")
                     return@launch
                 }
 
-                // Step 1: Determine intent using the model
-                val intentPrompt = """
-                    You are an Intent Classifier. Analyze the user prompt and determine the intent.
-                    The possible intents are:
-                    - call: User wants to make a phone call (e.g., "Call John", "Phone Sarah").
-                    - calendar: User wants to insert an event into the calendar (e.g., "Set a meeting with John tomorrow at 5pm", "Schedule an event").
-                    - chat: User wants to chat with the bot, including general questions, technical queries, or programming concepts (e.g., "What is a system call", "What is call by reference in cpp").
-
-                    Rules:
-                    1. Output ONLY the intent name (call, calendar, or chat) in lowercase.
-                    2. Do NOT include any other text, explanation, or comments.
-                    3. If the intent is unclear, output "chat".
-                    4. For "call" intent:
-                       - Look for explicit phone call requests with verbs like "call", "phone", or "dial" followed by a person's name (proper noun, e.g., "John", "Sarah").
-                       - Do NOT classify as "call" if "call" is part of a technical term (e.g., "system call", "call by reference", "function call").
-                    5. For "calendar" intent:
-                       - Look for keywords like "set", "schedule", "meeting", "event", or time references (e.g., "tomorrow", "5pm").
-                    6. For "chat" intent:
-                       - Include general questions, technical terms (e.g., "system call", "call by reference", "API"), programming-related queries, or anything not clearly a phone call or calendar event.
-                """.trimIndent()
-
-                val intentChatMessages = listOf(
-                    "system" to intentPrompt,
-                    "user" to prompt
-                )
-                val formattedIntentPrompt =
-                    formatChatTemplate(intentChatMessages, addGenerationPrompt = true)
-                Log.d("MainViewModel", "Formatted intent prompt: $formattedIntentPrompt")
-
+                // Declare responseBuilder at the top to be accessible in all branches
                 val responseBuilder = StringBuilder()
-                llama.send(formattedIntentPrompt, formatChat = true).collect { partialResponse ->
-                    responseBuilder.append(partialResponse)
+
+                // Boolean flag to control intent classification (for development)
+                val checkIntent = true
+
+                // Regex to detect ambiguous words that might indicate call or calendar intent
+                val ambiguousWordsRegex = Regex(
+                    """\b(call|phone|dial|event|meeting|schedule|set|appointment)\b""",
+                    RegexOption.IGNORE_CASE
+                )
+
+                // Determine intent: use classifier only if ambiguous words are present and checkIntent is true
+                val intent = if (checkIntent && ambiguousWordsRegex.containsMatchIn(prompt)) {
+                    // Step 1: Run intent classifier model for ambiguous prompts
+                    val intentPrompt = """
+                        You are an Intent Classifier. Analyze the user prompt and determine the intent.
+                        The possible intents are:
+                        - call: User wants to make a phone call (e.g., "Call John", "Phone Sarah").
+                        - calendar: User wants to insert an event into the calendar (e.g., "Set a meeting with John tomorrow at 5pm", "Schedule an event").
+                        - chat: User wants to chat with the bot, including general questions, technical queries, or programming concepts (e.g., "What is a system call", "What is call by reference in cpp").
+
+                        Rules:
+                        1. Output ONLY the intent name (call, calendar, or chat) in lowercase.
+                        2. Do NOT include any other text, explanation, or comments.
+                        3. If the intent is unclear, output "chat".
+                        4. For "call" intent:
+                           - Look for explicit phone call requests with verbs like "call", "phone", or "dial" followed by a person's name (proper noun, e.g., "John", "Sarah").
+                           - Do NOT classify as "call" if "call" is part of a technical term (e.g., "system call", "call by reference", "function call").
+                        5. For "calendar" intent:
+                           - Look for keywords like "set", "schedule", "meeting", "event", or time references (e.g., "tomorrow", "5pm").
+                        6. For "chat" intent:
+                           - Include general questions, technical terms (e.g., "system call", "call by reference", "API"), programming-related queries, or anything not clearly a phone call or calendar event.
+                    """.trimIndent()
+
+                    val intentChatMessages = listOf(
+                        "system" to intentPrompt,
+                        "user" to prompt
+                    )
+                    val formattedIntentPrompt =
+                        formatChatTemplate(intentChatMessages, addGenerationPrompt = true)
+                    Log.d("MainViewModel", "Formatted intent prompt: $formattedIntentPrompt")
+
+                    llama.send(formattedIntentPrompt, formatChat = true)
+                        .collect { partialResponse ->
+                            responseBuilder.append(partialResponse)
+                        }
+                    responseBuilder.toString().trim().lowercase()
+                } else {
+                    // Skip intent classifier for non-ambiguous prompts
+                    Log.d(
+                        "MainViewModel",
+                        "No ambiguous words found or checkIntent disabled, defaulting to chat"
+                    )
+                    "chat"
                 }
-                val intent = responseBuilder.toString().trim().lowercase()
                 Log.d("MainViewModel", "Determined intent: $intent")
 
                 // Step 2: Perform the intent
-                messages.add("${assistantName.value}: ")
                 when (intent) {
                     "call" -> {
                         val callPrompt = """
-                        You are a Caller Name Extractor. Follow these rules exactly:
-                        1. The User Prompt will give a call (e.g., "Call John").
-                        2. Extract ONLY the name of the person to call.
-                        3. Output MUST be in this 1-line format:
-                           Call <Name>
-                        4. Do NOT include any other text.
-                        5. Do NOT explain, greet, or comment. Output only the required format.
-                    """.trimIndent()
+                            You are a Caller Name Extractor. Follow these rules exactly:
+                            1. The User Prompt will give a call (e.g., "Call John").
+                            2. Extract ONLY the name of the person to call.
+                            3. Output MUST be in this 1-line format:
+                               Call <Name>
+                            4. Do NOT include any other text.
+                            5. Do NOT explain, greet, or comment. Output only the required format.
+                        """.trimIndent()
 
                         val callChatMessages = listOf(
                             "system" to callPrompt,
@@ -718,17 +742,17 @@ class MainViewModel(private val context: Context) : ViewModel() {
 
                     "calendar" -> {
                         val calendarPrompt = """
-                        You are a Calendar Event Extractor. Follow these rules exactly:
-                        1. The User Prompt will describe a calendar event (e.g., "Set a meeting with John tomorrow at 5pm").
-                        2. Extract the event details: title (e.g., "Meeting with <Name>"), time, and date.
-                        3. Output MUST be in this format:
-                           Title: <Event Title>
-                           Date: <Date>
-                           Time: <Time>
-                        4. If date or time is relative (e.g., "tomorrow"), convert to a specific date or time based on the current date: ${LocalDateTime.now()}.
-                        5. If details are missing, use "Unknown" for that field.
-                        6. Do NOT include any other text or explanations.
-                    """.trimIndent()
+                            You are a Calendar Event Extractor. Follow these rules exactly:
+                            1. The User Prompt will describe a calendar event (e.g., "Set a meeting with John tomorrow at 5pm").
+                            2. Extract the event details: title (e.g., "Meeting with <Name>"), time, and date.
+                            3. Output MUST be in this format:
+                               Title: <Event Title>
+                               Date: <Date>
+                               Time: <Time>
+                            4. If date or time is relative (e.g., "tomorrow"), convert to a specific date or time based on the current date: ${LocalDateTime.now()}.
+                            5. If details are missing, use "Unknown" for that field.
+                            6. Do NOT include any other text or explanations.
+                        """.trimIndent()
 
                         val calendarChatMessages = listOf(
                             "system" to calendarPrompt,
@@ -768,14 +792,14 @@ class MainViewModel(private val context: Context) : ViewModel() {
 
                     else -> { // Default case: chat
                         val chatPrompt = """
-                        You are ${assistantName.value}, a helpful AI assistant to ${userName.value}. Follow these guidelines:
-                        - Be concise yet thorough
-                        - Use clear, simple language
-                        - Format responses neatly with proper spacing
-                        - If unsure, say "I don't know" rather than guessing
-                        - For coding questions, provide complete examples
-                        - Always maintain a helpful, professional tone
-                    """.trimIndent()
+                            You are ${assistantName.value}, a helpful AI assistant to ${userName.value}. Follow these guidelines:
+                            - Be concise yet thorough
+                            - Use clear, simple language
+                            - Format responses neatly with proper spacing
+                            - If unsure, say "I don't know" rather than guessing
+                            - For coding questions, provide complete examples
+                            - Always maintain a helpful, professional tone
+                        """.trimIndent()
 
                         val chatMessages =
                             messagesToPairs(messages.dropLast(1), prompt).toMutableList()
@@ -798,14 +822,8 @@ class MainViewModel(private val context: Context) : ViewModel() {
                                         ?.removePrefix("${assistantName.value}: ")?.trim()
                                 ) {
                                     val formattedResponse = currentResponse.replace("\n\n", "\n")
-                                    if (messages.lastOrNull()
-                                            ?.startsWith("${assistantName.value}: ") == true
-                                    ) {
-                                        messages[messages.lastIndex] =
-                                            "${assistantName.value}: $formattedResponse"
-                                    } else {
-                                        messages.add("${assistantName.value}: $formattedResponse")
-                                    }
+                                    messages[messages.lastIndex] =
+                                        "${assistantName.value}: $formattedResponse"
                                     Log.d(
                                         "MainViewModel",
                                         "Updated chat response: $formattedResponse"
