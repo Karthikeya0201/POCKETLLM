@@ -21,15 +21,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.Divider
-import androidx.compose.ui.text.font.FontWeight
 import com.example.llama.MainViewModel
 import com.example.llama.R
 import com.example.llama.model.Downloadable
 import com.example.llama.ui.theme.Black
 import com.example.llama.ui.theme.PurplePrimary
 import com.example.llama.ui.theme.PurpleLight
-import com.example.llama.ui.theme.PurpleDark
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -69,32 +66,32 @@ fun ModelImportCard(
     var copyJob by remember { mutableStateOf<Job?>(null) }
     var selectedModel by remember { mutableStateOf<String?>(null) }
     var hasUserSelectedModel by remember { mutableStateOf(false) }
-    var shouldCopyFile by remember { mutableStateOf(false) } // New boolean state
+    var shouldCopyFile by remember { mutableStateOf(false) }
 
     val previousModelName by remember { mutableStateOf(viewModel.selectedFileName.value) }
     val previousUri by remember { mutableStateOf(viewModel.selectedUri.value) }
 
-    // Initialize state based on existing model only once
+    // Reset hasUserSelectedModel when the composable is recomposed (dialog opens)
     LaunchedEffect(Unit) {
-        val currentModel = viewModel.selectedFileName.value
-        if (currentModel != null && File(context.filesDir, currentModel).exists() && viewModel.isModelLoaded.value) {
-            importedModel = viewModel.getModelDisplayName(currentModel)
-            importedFileName = currentModel
+        // Check if a model is already loaded
+        val currentModelPath = viewModel.modelPath.value
+        if (currentModelPath.isNotEmpty() && File(currentModelPath).exists() && viewModel.isModelLoaded.value) {
+            val fileName = currentModelPath.substringAfterLast('/')
+            importedModel = viewModel.getModelDisplayName(fileName)
+            importedFileName = fileName
             selectedModel = importedModel
             hasUserSelectedModel = true
-            viewModel.showImportSuccess.value = true
-            shouldCopyFile = false // Explicitly set to false for loaded models
-            viewModel.selectedUri.value = null
-            viewModel.selectedFileName.value = null
+            viewModel.showImportSuccess.value = false // Allow new imports
+            shouldCopyFile = false
+            Log.d("ModelImportCard", "Initialized with modelPath: $currentModelPath, displayName=$importedModel")
         } else {
             importedModel = null
             importedFileName = null
             selectedModel = null
             hasUserSelectedModel = false
             viewModel.showImportSuccess.value = false
-            shouldCopyFile = false // Ensure no copy is triggered
-            viewModel.selectedUri.value = null
-            viewModel.selectedFileName.value = null
+            shouldCopyFile = false
+            Log.d("ModelImportCard", "No model loaded, initialized with empty state")
         }
         Log.d("ModelImportCard", "Initialized: downloadedModels=${viewModel.downloadedModels.value}, importedModel=$importedModel, selectedModel=$selectedModel, shouldCopyFile=$shouldCopyFile")
     }
@@ -114,27 +111,22 @@ fun ModelImportCard(
     }
 
     fun copySelectedFile() {
-        if(shouldCopyFile) {
+        if (shouldCopyFile) {
             viewModel.selectedUri.value?.let { uri ->
                 val rawFileName = viewModel.selectedFileName.value ?: return@let
                 val internalFile = File(context.filesDir, rawFileName)
 
-                // Check if file already exists
-                if (internalFile.exists()) {
-                    Log.d("ModelImportCard", "File already exists: $rawFileName, skipping copy")
+                // Check if file already exists and is not the current model
+                if (internalFile.exists() && internalFile.absolutePath != viewModel.modelPath.value) {
+                    Log.d("ModelImportCard", "File already exists: $rawFileName, using existing file")
                     importedModel = viewModel.getModelDisplayName(rawFileName)
                     importedFileName = rawFileName
                     selectedModel = importedModel
                     hasUserSelectedModel = true
+                    viewModel.showImportSuccess.value = true
                     shouldCopyFile = false
-                    return@let
-                }
-                // Only copy if shouldCopyFile is true
-                if (!shouldCopyFile) {
-                    Log.d(
-                        "ModelImportCard",
-                        "shouldCopyFile is false, skipping copy for $rawFileName"
-                    )
+                    viewModel.selectedUri.value = null
+                    viewModel.selectedFileName.value = null
                     return@let
                 }
 
@@ -170,6 +162,8 @@ fun ModelImportCard(
                             hasUserSelectedModel = true
                             viewModel.showImportSuccess.value = true
                             shouldCopyFile = false
+                            viewModel.selectedUri.value = null
+                            viewModel.selectedFileName.value = null
                             Log.d(
                                 "ModelImportCard",
                                 "File copied successfully: $rawFileName, path=${internalFile.absolutePath}, size=${internalFile.length()} bytes"
@@ -239,19 +233,30 @@ fun ModelImportCard(
         viewModel.setModelLoaded(checkModelInLocalStorage(context))
     }
 
+    // Handle file selection and prevent re-importing same file
     LaunchedEffect(viewModel.selectedUri.value, viewModel.selectedFileName.value) {
-        if (viewModel.selectedUri.value != null && viewModel.selectedFileName.value != null && !viewModel.showImportSuccess.value && !viewModel.isModelLoaded.value) {
-            shouldCopyFile = true // Set to true only for new file selections
+        if (viewModel.selectedUri.value != null && viewModel.selectedFileName.value != null && !viewModel.showImportSuccess.value) {
             val rawFileName = viewModel.selectedFileName.value
-            if (rawFileName != null && !File(context.filesDir, rawFileName).exists()) {
-                copySelectedFile()
-            } else {
-                viewModel.selectedUri.value = null
-                viewModel.selectedFileName.value = null
-                shouldCopyFile = false
+            if (rawFileName != null) {
+                val internalFile = File(context.filesDir, rawFileName)
+                val isDifferentFile = internalFile.absolutePath != viewModel.modelPath.value
+                if (!internalFile.exists() || isDifferentFile) {
+                    shouldCopyFile = true
+                    copySelectedFile()
+                } else {
+                    viewModel.importError.value = "Model file already imported: $rawFileName"
+                    viewModel.selectedUri.value = null
+                    viewModel.selectedFileName.value = null
+                    shouldCopyFile = false
+                    importedModel = viewModel.getModelDisplayName(rawFileName)
+                    importedFileName = rawFileName
+                    selectedModel = importedModel
+                    hasUserSelectedModel = true
+                    viewModel.showImportSuccess.value = true
+                }
             }
         } else {
-            shouldCopyFile = false // Ensure no copy is triggered if model is already loaded
+            shouldCopyFile = false
         }
     }
 
@@ -260,6 +265,7 @@ fun ModelImportCard(
         if (viewModel.showImportSuccess.value) {
             delay(3000L)
             viewModel.showImportSuccess.value = false
+            hasUserSelectedModel = false // Allow new imports after success message
         }
     }
 
@@ -297,7 +303,17 @@ fun ModelImportCard(
                     color = Color(0xFF1C1B1F)
                 )
             )
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Display import error if present
+            viewModel.importError.value?.takeIf { it.isNotEmpty() }?.let { error ->
+                Text(
+                    text = error,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+            }
 
             if (undownloadedModels.isNotEmpty()) {
                 undownloadedModels.forEachIndexed { index, model ->
@@ -442,7 +458,7 @@ fun ModelImportCard(
                 }
             } else {
                 OutlinedButton(
-                    onClick = { if (!hasUserSelectedModel) onImportClick() },
+                    onClick = { onImportClick() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(72.dp),
@@ -450,8 +466,7 @@ fun ModelImportCard(
                     border = BorderStroke(1.dp, Color(0xFFD9BDFE)),
                     colors = ButtonDefaults.outlinedButtonColors(
                         containerColor = Color(0xFFFAF2FB)
-                    ),
-                    enabled = !hasUserSelectedModel
+                    )
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -514,11 +529,8 @@ fun ModelImportCard(
                             val absolutePath = file.absolutePath
                             val displayName = selectedModel!!
                             onSave(absolutePath, viewModel.downloadedModels.value.contains(selectedModel), displayName)
-                            // Reset state to prevent re-import
+                            // Reset transient state
                             shouldCopyFile = false
-                            viewModel.selectedUri.value = null
-                            viewModel.selectedFileName.value = null
-                            viewModel.showImportSuccess.value = false
                         } else {
                             viewModel.importError.value = "Selected model file does not exist: $importedFileName"
                             Log.e("ModelImportCard", "Model file does not exist: $importedFileName")
@@ -568,6 +580,7 @@ private fun ModelOptionItem(
     }
     var downloadId by remember { mutableStateOf<Long?>(null) }
     val context = LocalContext.current
+    var hasUserSelectedModel by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(isDownloadComplete) {
@@ -603,6 +616,7 @@ private fun ModelOptionItem(
                 isDownloading = false
                 downloadId = null
                 onDownloadComplete()
+                hasUserSelectedModel = true
             } catch (e: Exception) {
                 viewModel.importError.value = "Error copying downloaded file: ${e.message}"
                 Log.e("ModelOptionItem", "File copy error: ${e.stackTraceToString()}")
@@ -661,9 +675,6 @@ private fun ModelOptionItem(
                 Column {
                     Text(
                         text = model.name,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Medium
-                        ),
                         color = Color(0xFF1C1B1F)
                     )
                     Text(

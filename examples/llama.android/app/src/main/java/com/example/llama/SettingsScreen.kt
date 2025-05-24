@@ -36,6 +36,7 @@ import com.example.llama.ui.theme.Black
 import com.example.llama.ui.theme.PurplePrimary
 import com.example.llama.ui.theme.PurpleLight
 import com.example.llama.ui.theme.PurpleHeading
+import android.util.Log
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,20 +51,20 @@ fun SettingsScreen(
     var isUserNameFocused by remember { mutableStateOf(false) }
     var isAssistantNameFocused by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
-    // Determine if the loaded model is downloaded or imported
-    val loadedModel by remember(viewModel.selectedFileName.value) {
+    var importState by remember { mutableStateOf<ImportState?>(null) }
+    val loadedModel by remember(viewModel.modelPath.value, viewModel.isModelLoaded.value) {
         derivedStateOf {
-            val modelName = viewModel.selectedFileName.value
-            if (modelName.isNullOrEmpty()) null
-            else {
-                val isDownloaded = modelOptions.any { it.name == modelName }
+            if (viewModel.isModelLoaded.value && viewModel.modelPath.value.isNotEmpty()) {
+                val modelName = viewModel.getModelDisplayName(viewModel.modelPath.value.substringAfterLast('/'))
+                val isDownloaded = modelOptions.any { viewModel.getModelFileName(it.name) == viewModel.modelPath.value.substringAfterLast('/') }
                 Pair(modelName, isDownloaded)
+            } else {
+                null
             }
         }
     }
 
     val context = LocalContext.current
-    // File picker for importing .gguf files
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
         onResult = { uri ->
@@ -79,18 +80,51 @@ fun SettingsScreen(
                     if (fileName != null && fileName.endsWith(".gguf", ignoreCase = true)) {
                         viewModel.selectedUri.value = uri
                         viewModel.selectedFileName.value = fileName
-                        // Copying will be handled in ModelImportCard
+                        Log.d("SettingsScreen", "File selected: uri=$uri, fileName=$fileName")
                     } else {
                         viewModel.importError.value = "Please select a .gguf file"
+                        Log.e("SettingsScreen", "Invalid file type: $fileName")
                     }
                 } catch (e: Exception) {
                     viewModel.importError.value = "Error checking file: ${e.message}"
+                    Log.e("SettingsScreen", "Error checking file: ${e.stackTraceToString()}")
                 }
             } ?: run {
                 viewModel.importError.value = "No file selected"
+                Log.d("SettingsScreen", "No file selected")
             }
         }
     )
+
+    // Handle import completion
+    LaunchedEffect(importState, viewModel.isLoadingModel.value, viewModel.importError.value) {
+        importState?.let { state ->
+            if (!viewModel.isLoadingModel.value) {
+                if (viewModel.importError.value.isEmpty()) {
+                    viewModel.setModelLoaded(true)
+                    viewModel.savePrefs(prefs)
+                    showModelDialog = false
+                    viewModel.selectedUri.value = null
+                    viewModel.selectedFileName.value = null
+                    viewModel.showImportSuccess.value = false
+                    Log.d("SettingsScreen", "Model loaded successfully: ${state.path}")
+                } else {
+                    Log.e("SettingsScreen", "Model loading failed: ${viewModel.importError.value}")
+                    // Keep dialog open to show error
+                }
+                importState = null
+            }
+        }
+    }
+
+    // Reset showImportSuccess when dialog opens
+    LaunchedEffect(showModelDialog) {
+        if (showModelDialog) {
+            viewModel.showImportSuccess.value = false
+            viewModel.importError.value = ""
+            Log.d("SettingsScreen", "Model dialog opened, reset showImportSuccess and importError")
+        }
+    }
 
     NavHost(
         navController = settingsNavController,
@@ -336,15 +370,6 @@ fun SettingsScreen(
                         }
                     }
 
-                    // Display any import errors
-                    viewModel.importError.value?.takeIf { it.isNotEmpty() }?.let { error ->
-                        Text(
-                            text = error,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(horizontal = 4.dp)
-                        )
-                    }
-
                     // Save Changes Button
                     Box(
                         modifier = Modifier.fillMaxWidth(),
@@ -376,14 +401,16 @@ fun SettingsScreen(
                 if (showModelDialog) {
                     Dialog(
                         onDismissRequest = {
-                            showModelDialog = false
-                            viewModel.importError.value = ""
-                            viewModel.showImportSuccess.value = false // Reset on dismiss
+                            if (!viewModel.isLoadingModel.value && importState == null) {
+                                showModelDialog = false
+                                viewModel.importError.value = ""
+                                viewModel.showImportSuccess.value = false
+                            }
                         },
                         properties = DialogProperties(
                             usePlatformDefaultWidth = false,
-                            dismissOnBackPress = true,
-                            dismissOnClickOutside = true
+                            dismissOnBackPress = !viewModel.isLoadingModel.value && importState == null,
+                            dismissOnClickOutside = !viewModel.isLoadingModel.value && importState == null
                         )
                     ) {
                         Box(
@@ -393,27 +420,36 @@ fun SettingsScreen(
                                 .padding(16.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            ModelImportCard(
-                                viewModel = viewModel,
-                                downloadManager = downloadManager,
-                                modelOptions = modelOptions,
-                                onImportClick = { filePickerLauncher.launch("*/*") },
-                                onSave = { path, isDownloaded, displayName ->
-                                    viewModel.setModelPath(path)
-                                    viewModel.setModelLoaded(true)
-                                    viewModel.savePrefs(prefs)
-                                    viewModel.selectedFileName.value = displayName
-                                    showModelDialog = false
-                                    viewModel.selectedUri.value = null // Clear URI
-                                    viewModel.selectedFileName.value = null // Clear file name
-                                    viewModel.importError.value = ""
-                                    viewModel.showImportSuccess.value = false // Reset success state
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth(0.9f)
-                                    .wrapContentHeight()
-                                    .align(Alignment.Center)
-                            )
+                            if (viewModel.isLoadingModel.value || importState != null) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    CircularProgressIndicator()
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Loading model...",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            } else {
+                                ModelImportCard(
+                                    viewModel = viewModel,
+                                    downloadManager = downloadManager,
+                                    modelOptions = modelOptions,
+                                    onImportClick = { filePickerLauncher.launch("*/*") },
+                                    onSave = { path, isDownloaded, displayName ->
+                                        viewModel.setModelPath(path)
+                                        importState = ImportState(path, isDownloaded, displayName)
+                                        Log.d("SettingsScreen", "onSave called: path=$path, displayName=$displayName")
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.9f)
+                                        .wrapContentHeight()
+                                        .align(Alignment.Center)
+                                )
+                            }
                         }
                     }
                 }
@@ -421,3 +457,6 @@ fun SettingsScreen(
         }
     }
 }
+
+// Data class to track import state
+data class ImportState(val path: String, val isDownloaded: Boolean, val displayName: String)

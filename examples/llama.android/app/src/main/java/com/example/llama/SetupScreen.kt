@@ -37,6 +37,9 @@ import com.example.llama.ui.theme.PurplePrimary
 import com.example.llama.ui.theme.White
 import android.util.Log
 import kotlinx.coroutines.delay
+import com.example.llama.ImportState
+
+// Data class to track import state, moved to top level
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,6 +58,7 @@ fun SetupScreen(
     var isUserNameFocused by remember { mutableStateOf(false) }
     var isAssistantNameFocused by remember { mutableStateOf(false) }
     var pendingDialogOpen by remember { mutableStateOf(false) }
+    var importState by remember { mutableStateOf<ImportState?>(null) }
 
     // Initialize state only once when the composable is created
     LaunchedEffect(Unit) {
@@ -67,6 +71,26 @@ fun SetupScreen(
             loadedModel = null
             isModelReady = false
             Log.d("SetupScreen", "No model loaded")
+        }
+    }
+
+    // Synchronize state after import
+    LaunchedEffect(importState, viewModel.isLoadingModel.value, viewModel.importError.value) {
+        importState?.let { state ->
+            if (!viewModel.isLoadingModel.value) {
+                if (viewModel.importError.value.isEmpty()) {
+                    viewModel.setModelLoaded(true)
+                    viewModel.savePrefs(prefs)
+                    loadedModel = Pair(state.displayName, state.isDownloaded)
+                    isModelReady = true
+                    showModelDialog = false
+                    viewModel.selectedUri.value = null
+                    viewModel.selectedFileName.value = null
+                    viewModel.showImportSuccess.value = true
+                    Log.d("SetupScreen", "Import completed: displayName=${state.displayName}, isModelReady=$isModelReady")
+                }
+                importState = null
+            }
         }
     }
 
@@ -339,14 +363,16 @@ fun SetupScreen(
         if (showModelDialog) {
             Dialog(
                 onDismissRequest = {
-                    showModelDialog = false
-                    viewModel.importError.value = ""
-                    Log.d("SetupScreen", "Dialog dismissed, showImportSuccess=${viewModel.showImportSuccess.value}")
+                    if (!viewModel.isLoadingModel.value && importState == null) {
+                        showModelDialog = false
+                        viewModel.importError.value = ""
+                        Log.d("SetupScreen", "Dialog dismissed, showImportSuccess=${viewModel.showImportSuccess.value}")
+                    }
                 },
                 properties = DialogProperties(
                     usePlatformDefaultWidth = false,
-                    dismissOnBackPress = true,
-                    dismissOnClickOutside = true
+                    dismissOnBackPress = !viewModel.isLoadingModel.value && importState == null,
+                    dismissOnClickOutside = !viewModel.isLoadingModel.value && importState == null
                 )
             ) {
                 Box(
@@ -370,13 +396,7 @@ fun SetupScreen(
                         onSave = { modelPath, isDownloaded, displayName ->
                             Log.d("SetupScreen", "onSave called with modelPath=$modelPath, isDownloaded=$isDownloaded, displayName=$displayName")
                             viewModel.setModelPath(modelPath)
-                            loadedModel = Pair(displayName, isDownloaded)
-                            isModelReady = true
-                            showModelDialog = false
-                            viewModel.selectedUri.value = null
-                            viewModel.selectedFileName.value = null
-                            viewModel.importError.value = ""
-                            viewModel.showImportSuccess.value = true
+                            importState = ImportState(modelPath, isDownloaded, displayName)
                         },
                         modifier = Modifier
                             .fillMaxWidth(0.9f)
