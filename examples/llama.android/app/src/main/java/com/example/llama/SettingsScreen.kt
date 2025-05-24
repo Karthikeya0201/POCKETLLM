@@ -420,36 +420,21 @@ fun SettingsScreen(
                                 .padding(16.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (viewModel.isLoadingModel.value || importState != null) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    CircularProgressIndicator()
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "Loading model...",
-                                        color = Color.White,
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                }
-                            } else {
-                                ModelImportCard(
-                                    viewModel = viewModel,
-                                    downloadManager = downloadManager,
-                                    modelOptions = modelOptions,
-                                    onImportClick = { filePickerLauncher.launch("*/*") },
-                                    onSave = { path, isDownloaded, displayName ->
-                                        viewModel.setModelPath(path)
-                                        importState = ImportState(path, isDownloaded, displayName)
-                                        Log.d("SettingsScreen", "onSave called: path=$path, displayName=$displayName")
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.9f)
-                                        .wrapContentHeight()
-                                        .align(Alignment.Center)
-                                )
-                            }
+                            ModelImportCard(
+                                viewModel = viewModel,
+                                downloadManager = downloadManager,
+                                modelOptions = modelOptions,
+                                onImportClick = { filePickerLauncher.launch("*/*") },
+                                onSave = { path, isDownloaded, displayName ->
+                                    viewModel.setModelPath(path)
+                                    importState = ImportState(path, isDownloaded, displayName)
+                                    Log.d("SettingsScreen", "onSave called: path=$path, displayName=$displayName")
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth(0.9f)
+                                    .wrapContentHeight()
+                                    .align(Alignment.Center)
+                            )
                         }
                     }
                 }
