@@ -3,7 +3,6 @@ package com.example.llama
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
-import android.provider.CalendarContract
 import android.provider.OpenableColumns
 import android.util.Log
 import androidx.compose.runtime.MutableState
@@ -12,21 +11,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.State
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.llama.handler.IntentCall
+import com.example.llama.handler.MessageHandler
+import com.example.llama.handler.MessageHandlerParams
 import com.example.llama.model.ChatHistory
 import android.llama.cpp.LLamaAndroid
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
-import java.text.SimpleDateFormat
-import java.time.LocalDateTime
 import java.util.*
 
 class MainViewModel(private val context: Context) : ViewModel() {
@@ -34,7 +30,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
     var userName = mutableStateOf("")
     var assistantName = mutableStateOf("")
     val message = mutableStateOf("")
-    val messages = mutableStateListOf<String>() // Reverted to List<String>
+    val messages = mutableStateListOf<String>()
     val chatHistories = mutableStateListOf<ChatHistory>()
     val modelPath = mutableStateOf("")
     val importError = mutableStateOf("")
@@ -47,7 +43,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
     private val llama = LLamaAndroid.instance().apply {
         setContextSize(4096)
     }
-    private var sendJob: Job? = null
     var currentChatId: String? = null
 
     val selectedUri = mutableStateOf<Uri?>(null)
@@ -268,55 +263,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
     }
 
-    suspend fun saveCurrentChat() {
-        if (messages.isEmpty()) {
-            Log.d("MainViewModel", "No messages to save")
-            return
-        }
-
-        val chatId = currentChatId ?: UUID.randomUUID().toString()
-
-        val userPrefix = "${userName.value}: "
-        val firstMsg =
-            messages.firstOrNull { it.startsWith(userPrefix) } ?: messages.firstOrNull() ?: ""
-        val trimmedTitle = if (firstMsg.startsWith(userPrefix)) {
-            firstMsg.removePrefix(userPrefix).trimStart()
-        } else {
-            firstMsg
-        }
-        val title = trimmedTitle.take(30)
-
-        val chatHistory = ChatHistory(
-            id = chatId,
-            title = title,
-            date = Date(),
-            messages = messages.toList()
-        )
-        val file = File(chatsDir, "$chatId.json")
-
-        withContext(Dispatchers.IO) {
-            try {
-                val json = Json.encodeToString(chatHistory)
-                file.writeText(json)
-                Log.d("MainViewModel", "Chat saved to: ${file.absolutePath}")
-
-                val existingIndex = chatHistories.indexOfFirst { it.id == chatId }
-                if (existingIndex != -1) {
-                    chatHistories[existingIndex] = chatHistory
-                    Log.d("MainViewModel", "Updated existing chat: $chatId")
-                } else {
-                    chatHistories.add(chatHistory)
-                    currentChatId = chatId
-                    Log.d("MainViewModel", "Added new chat: $chatId")
-                }
-                chatHistories.sortByDescending { it.date }
-                Log.d("MainViewModel", "Chat list updated, size: ${chatHistories.size}")
-            } catch (e: Exception) {
-                Log.e("MainViewModel", "Failed to save chat $chatId: ${e.stackTraceToString()}")
-            }
-        }
-    }
-
     suspend fun loadChat(chatId: String) {
         while (!_isInitialized.value) {
             Log.d(
@@ -524,10 +470,8 @@ class MainViewModel(private val context: Context) : ViewModel() {
     fun startNewChat() {
         Log.d("MainViewModel", "Starting new chat")
         viewModelScope.launch {
-            saveCurrentChat()
             messages.clear()
             currentChatId = null
-            sendJob?.cancel()
             isGenerating.value = false
             if (!_isModelLoaded.value && modelPath.value.isNotEmpty() && File(modelPath.value).exists()) {
                 try {
@@ -573,276 +517,26 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
     }
 
-    private fun formatChatTemplate(
-        messages: List<Pair<String, String>>,
-        addGenerationPrompt: Boolean = false
-    ): String {
-        val builder = StringBuilder()
-        messages.forEachIndexed { index, (role, content) ->
-            if (index == 0 && role != "system") {
-                builder.append("<|im_start|>system You are a helpful assistant.<|im_end|> ")
-            }
-            builder.append("<|im_start|>$role $content<|im_end|> ")
-        }
-        if (addGenerationPrompt) {
-            builder.append("<|im_start|>assistant ")
-        }
-        return builder.toString().trim()
-    }
-
-    // Helper function to convert messages to role-based pairs
-    private fun messagesToPairs(
-        messages: List<String>,
-        currentPrompt: String? = null
-    ): List<Pair<String, String>> {
-        val pairs = mutableListOf<Pair<String, String>>()
-        messages.forEach { msg ->
-            when {
-                msg.startsWith("${userName.value}: ") -> {
-                    pairs.add("user" to msg.removePrefix("${userName.value}: ").trim())
-                }
-
-                msg.startsWith("${assistantName.value}: ") -> {
-                    pairs.add("assistant" to msg.removePrefix("${assistantName.value}: ").trim())
-                }
-
-                else -> {
-                    // Assume assistant if no clear prefix (fallback)
-                    pairs.add("assistant" to msg.trim())
-                }
-            }
-        }
-        if (currentPrompt != null) {
-            pairs.add("user" to currentPrompt.trim())
-        }
-        return pairs
-    }
-
     fun send(prompt: String = message.value.trim()) {
-        if (prompt.isBlank()) {
-            Log.d("MainViewModel", "Empty prompt, skipping send")
-            return
-        }
-        // Set isGenerating and add placeholder message immediately to show loading bubble
-        isGenerating.value = true
-        messages.add("${userName.value}: $prompt")
-        messages.add("${assistantName.value}: ") // Add placeholder for immediate loading bubble
-        sendJob?.cancel()
-        sendJob = viewModelScope.launch {
-            try {
-                Log.d("MainViewModel", "Sending prompt: $prompt")
-                if (modelPath.value.isEmpty()) {
-                    messages[messages.lastIndex] =
-                        "${assistantName.value}: No model loaded. Please load a model from Settings."
-                    isGenerating.value = false
-                    Log.d("MainViewModel", "No model loaded")
-                    return@launch
-                }
-
-                // Declare responseBuilder at the top to be accessible in all branches
-                val responseBuilder = StringBuilder()
-
-                // Boolean flag to control intent classification (for development)
-                val checkIntent = true
-
-                // Regex to detect ambiguous words that might indicate call or calendar intent
-                val ambiguousWordsRegex = Regex(
-                    """\b(call|phone|dial|event|meeting|schedule|set|appointment)\b""",
-                    RegexOption.IGNORE_CASE
-                )
-
-                // Determine intent: use classifier only if ambiguous words are present and checkIntent is true
-                val intent = if (checkIntent && ambiguousWordsRegex.containsMatchIn(prompt)) {
-                    // Step 1: Run intent classifier model for ambiguous prompts
-                    val intentPrompt = """
-                        You are an Intent Classifier. Analyze the user prompt and determine the intent.
-                        The possible intents are:
-                        - call: User wants to make a phone call (e.g., "Call John", "Phone Sarah").
-                        - calendar: User wants to insert an event into the calendar (e.g., "Set a meeting with John tomorrow at 5pm", "Schedule an event").
-                        - chat: User wants to chat with the bot, including general questions, technical queries, or programming concepts (e.g., "What is a system call", "What is call by reference in cpp").
-
-                        Rules:
-                        1. Output ONLY the intent name (call, calendar, or chat) in lowercase.
-                        2. Do NOT include any other text, explanation, or comments.
-                        3. If the intent is unclear, output "chat".
-                        4. For "call" intent:
-                           - Look for explicit phone call requests with verbs like "call", "phone", or "dial" followed by a person's name (proper noun, e.g., "John", "Sarah").
-                           - Do NOT classify as "call" if "call" is part of a technical term (e.g., "system call", "call by reference", "function call").
-                        5. For "calendar" intent:
-                           - Look for keywords like "set", "schedule", "meeting", "event", or time references (e.g., "tomorrow", "5pm").
-                        6. For "chat" intent:
-                           - Include general questions, technical terms (e.g., "system call", "call by reference", "API"), programming-related queries, or anything not clearly a phone call or calendar event.
-                    """.trimIndent()
-
-                    val intentChatMessages = listOf(
-                        "system" to intentPrompt,
-                        "user" to prompt
-                    )
-                    val formattedIntentPrompt =
-                        formatChatTemplate(intentChatMessages, addGenerationPrompt = true)
-                    Log.d("MainViewModel", "Formatted intent prompt: $formattedIntentPrompt")
-
-                    llama.send(formattedIntentPrompt, formatChat = true)
-                        .collect { partialResponse ->
-                            responseBuilder.append(partialResponse)
-                        }
-                    responseBuilder.toString().trim().lowercase()
-                } else {
-                    // Skip intent classifier for non-ambiguous prompts
-                    Log.d(
-                        "MainViewModel",
-                        "No ambiguous words found or checkIntent disabled, defaulting to chat"
-                    )
-                    "chat"
-                }
-                Log.d("MainViewModel", "Determined intent: $intent")
-
-                // Step 2: Perform the intent
-                when (intent) {
-                    "call" -> {
-                        val callPrompt = """
-                            You are a Caller Name Extractor. Follow these rules exactly:
-                            1. The User Prompt will give a call (e.g., "Call John").
-                            2. Extract ONLY the name of the person to call.
-                            3. Output MUST be in this 1-line format:
-                               Call <Name>
-                            4. Do NOT include any other text.
-                            5. Do NOT explain, greet, or comment. Output only the required format.
-                        """.trimIndent()
-
-                        val callChatMessages = listOf(
-                            "system" to callPrompt,
-                            "user" to prompt
-                        )
-                        val formattedCallPrompt =
-                            formatChatTemplate(callChatMessages, addGenerationPrompt = true)
-                        Log.d("MainViewModel", "Formatted call prompt: $formattedCallPrompt")
-
-                        responseBuilder.clear()
-                        llama.send(formattedCallPrompt, formatChat = true)
-                            .collect { partialResponse ->
-                                responseBuilder.append(partialResponse)
-                            }
-                        val callPerson = responseBuilder.toString().trim()
-
-                        val nameToCall = callPerson.removePrefix("Call ").trim()
-                        if (nameToCall.isBlank()) {
-                            messages[messages.lastIndex] =
-                                "${assistantName.value}: Invalid contact name"
-                        } else {
-                            val intentCall = IntentCall(context)
-                            val callSuccess = intentCall.initiateCall(nameToCall)
-                            messages[messages.lastIndex] = if (callSuccess) {
-                                "${assistantName.value}: Calling $nameToCall..."
-                            } else {
-                                "${assistantName.value}: Failed to call $nameToCall"
-                            }
-                        }
-                    }
-
-                    "calendar" -> {
-                        val calendarPrompt = """
-                            You are a Calendar Event Extractor. Follow these rules exactly:
-                            1. The User Prompt will describe a calendar event (e.g., "Set a meeting with John tomorrow at 5pm").
-                            2. Extract the event details: title (e.g., "Meeting with <Name>"), time, and date.
-                            3. Output MUST be in this format:
-                               Title: <Event Title>
-                               Date: <Date>
-                               Time: <Time>
-                            4. If date or time is relative (e.g., "tomorrow"), convert to a specific date or time based on the current date: ${LocalDateTime.now()}.
-                            5. If details are missing, use "Unknown" for that field.
-                            6. Do NOT include any other text or explanations.
-                        """.trimIndent()
-
-                        val calendarChatMessages = listOf(
-                            "system" to calendarPrompt,
-                            "user" to prompt
-                        )
-                        val formattedCalendarPrompt =
-                            formatChatTemplate(calendarChatMessages, addGenerationPrompt = true)
-                        Log.d(
-                            "MainViewModel",
-                            "Formatted calendar prompt: $formattedCalendarPrompt"
-                        )
-
-                        responseBuilder.clear()
-                        llama.send(formattedCalendarPrompt, formatChat = true)
-                            .collect { partialResponse ->
-                                responseBuilder.append(partialResponse)
-                            }
-                        val eventDetails = responseBuilder.toString().trim()
-
-                        // Parse the extracted details
-                        val detailsMap = eventDetails.lines().associate {
-                            val (key, value) = it.split(": ", limit = 2)
-                            key.trim() to value.trim()
-                        }
-                        val title = detailsMap["Title"] ?: "Unknown"
-                        val date = detailsMap["Date"] ?: "Unknown"
-                        val time = detailsMap["Time"] ?: "Unknown"
-
-                        if (title == "Unknown" || date == "Unknown" || time == "Unknown") {
-                            messages[messages.lastIndex] =
-                                "${assistantName.value}: Failed to extract event details"
-                        } else {
-                            messages[messages.lastIndex] =
-                                "${assistantName.value}: Scheduled $title on $date at $time"
-                        }
-                    }
-
-                    else -> { // Default case: chat
-                        val chatPrompt = """
-                            You are ${assistantName.value}, a helpful AI assistant to ${userName.value}. Follow these guidelines:
-                            - Be concise yet thorough
-                            - Use clear, simple language
-                            - Format responses neatly with proper spacing
-                            - If unsure, say "I don't know" rather than guessing
-                            - For coding questions, provide complete examples
-                            - Always maintain a helpful, professional tone
-                        """.trimIndent()
-
-                        val chatMessages =
-                            messagesToPairs(messages.dropLast(1), prompt).toMutableList()
-                        if (chatMessages.none { it.first == "system" }) {
-                            chatMessages.add(0, "system" to chatPrompt)
-                        }
-                        val formattedChatPrompt =
-                            formatChatTemplate(chatMessages, addGenerationPrompt = true)
-                        Log.d("MainViewModel", "Formatted chat prompt: $formattedChatPrompt")
-
-                        responseBuilder.clear()
-                        llama.send(formattedChatPrompt, formatChat = true)
-                            .collect { partialResponse ->
-                                responseBuilder.append(partialResponse)
-                                val currentResponse = responseBuilder.toString().trim()
-
-                                if (currentResponse.isNotEmpty() &&
-                                    !currentResponse.endsWith("...") &&
-                                    currentResponse != messages.lastOrNull()
-                                        ?.removePrefix("${assistantName.value}: ")?.trim()
-                                ) {
-                                    val formattedResponse = currentResponse.replace("\n\n", "\n")
-                                    messages[messages.lastIndex] =
-                                        "${assistantName.value}: $formattedResponse"
-                                    Log.d(
-                                        "MainViewModel",
-                                        "Updated chat response: $formattedResponse"
-                                    )
-                                }
-                            }
-                    }
-                }
-            } finally {
-                isGenerating.value = false
-                sendJob = null
-                Log.d("MainViewModel", "Sending finished, saving chat")
-                saveCurrentChat()
-            }
-        }
+        val messageHandler = MessageHandler()
+        val params = MessageHandlerParams(
+            context = context,
+            userName = userName.value,
+            assistantName = assistantName.value,
+            modelPath = modelPath.value,
+            messages = messages,
+            chatHistories = chatHistories,
+            isGenerating = isGenerating,
+            currentChatId = mutableStateOf(currentChatId),
+            selectedCalendarId = selectedCalendarId,
+            calendarList = calendarList,
+            chatsDir = chatsDir,
+            llama = llama
+        )
+        messageHandler.sendMessage(params, prompt, viewModelScope)
     }
 
     fun pause() {
-        sendJob?.cancel()
         isGenerating.value = false
         messages.removeAll {
             it.startsWith("${assistantName.value}: ") &&
