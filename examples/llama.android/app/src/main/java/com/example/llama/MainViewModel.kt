@@ -635,7 +635,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
 
                 if (intent == "main") {
                     val systemPrompt = """
-                        You are ${assistantName.value}, a helpful AI assistant. Follow these guidelines:
+                        You are ${assistantName.value}, a helpful AI assistant to ${userName.value}. Follow these guidelines:
                         - Be concise yet thorough
                         - Use clear, simple language
                         - Format responses neatly with proper spacing
