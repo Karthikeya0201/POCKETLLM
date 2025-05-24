@@ -11,8 +11,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -30,6 +33,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import kotlinx.coroutines.delay
 
 @Composable
@@ -51,7 +56,7 @@ fun MessageBubble(
 
     val dotAnimatable = remember { Animatable(0f) }
 
-    // State to control the visibility of the "Copy" button
+    // State to control the visibility of the "Copy" button for the bubble
     var showCopyButton by remember { mutableStateOf(false) }
 
     // Clipboard manager to copy text
@@ -77,13 +82,16 @@ fun MessageBubble(
         }
     }
 
-    // Auto-hide the "Copy" button after 3 seconds
+    // Auto-hide the bubble's "Copy" button after 3 seconds
     LaunchedEffect(showCopyButton) {
         if (showCopyButton) {
             delay(3000)
             showCopyButton = false
         }
     }
+
+    // Parse text to detect code blocks
+    val (language, code, isCodeBlock) = parseCodeBlock(text)
 
     Box(modifier = modifier) {
         // Main bubble with long press detection
@@ -95,7 +103,7 @@ fun MessageBubble(
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onLongPress = {
-                            if (!isLoading) { // Only show copy button if not loading
+                            if (!isLoading && !isCodeBlock) { // Only show bubble copy button for non-code content
                                 showCopyButton = true
                             }
                         },
@@ -127,6 +135,13 @@ fun MessageBubble(
                         )
                     }
                 }
+            } else if (isCodeBlock) {
+                // Code block UI inspired by Gemini
+                CodeBlock(
+                    language = language ?: "Code",
+                    code = code ?: text,
+                    modifier = Modifier.fillMaxWidth()
+                )
             } else {
                 Text(
                     text = text,
@@ -138,13 +153,12 @@ fun MessageBubble(
             }
         }
 
-        // "Copy" button, shown above the bubble when long pressed
-        if (showCopyButton && !isLoading) {
+        // Bubble's "Copy" button, shown above the bubble when long pressed (for non-code content)
+        if (showCopyButton && !isLoading && !isCodeBlock) {
             Button(
                 onClick = {
                     clipboardManager.setText(AnnotatedString(text))
                     showCopyButton = false
-                    // Optional: Show a toast to confirm the text was copied
                     android.widget.Toast.makeText(context, "Text copied!", android.widget.Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier
@@ -191,5 +205,96 @@ fun MessageBubble(
                 color = bubbleColor
             )
         }
+    }
+}
+
+// Helper function to parse code blocks
+private fun parseCodeBlock(text: String): Triple<String?, String?, Boolean> {
+    val codeBlockRegex = Regex("```(\\w+)?\\n([\\s\\S]*?)```")
+    val match = codeBlockRegex.find(text)
+    return if (match != null) {
+        val language = match.groups[1]?.value
+        val code = match.groups[2]?.value?.trim()
+        Triple(language, code, true)
+    } else {
+        Triple(null, null, false)
+    }
+}
+
+// Composable for rendering the code block in Gemini style
+@Composable
+fun CodeBlock(
+    language: String,
+    code: String,
+    modifier: Modifier = Modifier
+) {
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
+    Column(
+        modifier = modifier
+            .background(Color.White, RoundedCornerShape(8.dp))
+            .padding(8.dp)
+    ) {
+        // Header with language and copy button
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = language,
+                style = TextStyle(
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.Gray
+                )
+            )
+            Box(
+                modifier = Modifier
+                    .clickable {
+                        clipboardManager.setText(AnnotatedString(code))
+                        android.widget.Toast.makeText(context, "Code copied!", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    .padding(4.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Copy Code",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Copy",
+                        style = TextStyle(
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.Gray
+                        )
+                    )
+                }
+            }
+        }
+        // Spacer to create a gap between the header and the code content
+        Spacer(modifier = Modifier.height(8.dp))
+        // Code content
+        Text(
+            text = code,
+            style = TextStyle(
+                fontFamily = FontFamily.Monospace,
+                fontSize = 14.sp,
+                color = Color.Black,
+                textAlign = TextAlign.Start
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        )
     }
 }
