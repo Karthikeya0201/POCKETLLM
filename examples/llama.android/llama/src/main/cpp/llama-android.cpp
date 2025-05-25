@@ -121,7 +121,7 @@ Java_android_llama_cpp_LLamaAndroid_new_1context(JNIEnv *env, jobject, jlong jmo
 
     llama_context_params ctx_params = llama_context_default_params();
 
-    ctx_params.n_ctx           = 4096;
+    ctx_params.n_ctx           = 8192;
     ctx_params.n_threads       = n_threads;
     ctx_params.n_threads_batch = n_threads;
 
@@ -153,7 +153,7 @@ Java_android_llama_cpp_LLamaAndroid_new_1context_1with_1size(JNIEnv *env, jobjec
 
     llama_context_params ctx_params = llama_context_default_params();
 
-    ctx_params.n_ctx           = 4096;
+    ctx_params.n_ctx           = 8192;
     ctx_params.n_threads       = n_threads;
     ctx_params.n_threads_batch = n_threads;
 

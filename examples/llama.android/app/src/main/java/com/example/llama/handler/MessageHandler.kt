@@ -66,9 +66,11 @@ class MessageHandler {
                 msg.startsWith("$userName: ") -> {
                     pairs.add("user" to msg.removePrefix("$userName: ").trim())
                 }
+
                 msg.startsWith("$assistantName: ") -> {
                     pairs.add("assistant" to msg.removePrefix("$assistantName: ").trim())
                 }
+
                 else -> {
                     pairs.add("assistant" to msg.trim())
                 }
@@ -172,7 +174,7 @@ class MessageHandler {
                     val intentPrompt = """
                         You are an Intent Classifier. Analyze the user prompt and determine the intent.
                         The possible intents are:
-                        - call: User explicitly requests to make a phone call (e.g., "Call John", "Phone Sarah").
+                        - call: User explicitly requests to make a phone call (e.g., "Call John", "Phone Sarah", "Call Mummy").
                         - calendar: User requests to create or manage a calendar event (e.g., "Schedule a meeting with John tomorrow at 5pm", "Set an event").
                         - chat: User wants to engage in conversation, ask general or technical questions, or discuss topics not related to calls or calendar events (e.g., "What is a system call?", "Explain call by reference in C++").
                         Rules:
@@ -180,7 +182,7 @@ class MessageHandler {
                         2. Do NOT include any other text, explanation, or comments.
                         3. If the intent is unclear, output "chat".
                         4. For "call" intent:
-                           - Requires explicit verbs like "call", "phone", or "dial" followed by a person's name (e.g., "John", "Sarah").
+                           - Requires explicit verbs like "call", "phone", or "dial" followed by a person's name (e.g., "John", "Sarah", "Mummy").
                            - Exclude technical terms like "system call", "function call", or "call by reference".
                            - Example: "Call John" -> call, "What is a system call?" -> chat.
                         5. For "calendar" intent:
@@ -214,8 +216,12 @@ class MessageHandler {
                     "chat"
                 }
                 Log.d("MessageHandler", "Determined intent: $intent")
-                Toast.makeText(params.context, "$intent intent activated", Toast.LENGTH_SHORT)
-                    .show()
+                Toast.makeText(
+                    params.context,
+                    "${intent.replaceFirstChar { it.uppercaseChar() }} intent activated",
+                    Toast.LENGTH_SHORT
+                ).show()
+
 
                 when (intent) {
                     "call" -> {
@@ -261,24 +267,23 @@ class MessageHandler {
                     }
 
                     "calendar" -> {
-                        // Precompute date values for May 25, 2025
                         val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                         val calendar = Calendar.getInstance()
 
-                        val currentDate = dateFormat.format(Date()) // 2025-05-25
+                        val currentDate = dateFormat.format(Date())
                         calendar.add(Calendar.DAY_OF_YEAR, 1)
-                        val tomorrowDate = dateFormat.format(calendar.time) // 2025-05-26
+                        val tomorrowDate = dateFormat.format(calendar.time)
                         calendar.time = Date()
                         calendar.add(Calendar.WEEK_OF_YEAR, 1)
-                        val nextWeekDate = dateFormat.format(calendar.time) // 2025-06-01
+                        val nextWeekDate = dateFormat.format(calendar.time)
                         calendar.time = Date()
                         while (calendar.get(Calendar.DAY_OF_WEEK) != Calendar.FRIDAY) {
                             calendar.add(Calendar.DAY_OF_YEAR, 1)
                         }
-                        val thisFridayDate = dateFormat.format(calendar.time) // 2025-05-30
+                        val thisFridayDate = dateFormat.format(calendar.time)
                         calendar.time = Date()
                         calendar.add(Calendar.DAY_OF_YEAR, 2)
-                        val inTwoDaysDate = dateFormat.format(calendar.time) // 2025-05-27
+                        val inTwoDaysDate = dateFormat.format(calendar.time)
 
                         val calendarPrompt = """
                             You are a Calendar Event Extractor. Follow these rules exactly:
@@ -380,7 +385,8 @@ class MessageHandler {
                             time = time,
                             duration = duration
                         )
-                        val success = calendarIntent.insertEvent(event, params.selectedCalendarId.value)
+                        val success =
+                            calendarIntent.insertEvent(event, params.selectedCalendarId.value)
 
                         params.messages[params.messages.lastIndex] = if (success) {
                             "${params.assistantName}: Scheduled $title${date?.let { " on $it" } ?: ""}${time?.let { " at $it" } ?: ""}${duration?.let { " for $it minutes" } ?: ""}"
