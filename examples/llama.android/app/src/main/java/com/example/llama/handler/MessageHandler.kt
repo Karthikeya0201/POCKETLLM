@@ -2,6 +2,7 @@ package com.example.llama.handler
 
 import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.example.llama.model.ChatHistory
@@ -16,7 +17,6 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 import android.llama.cpp.LLamaAndroid
-import android.widget.Toast
 
 data class MessageHandlerParams(
     val context: Context,
@@ -66,11 +66,9 @@ class MessageHandler {
                 msg.startsWith("$userName: ") -> {
                     pairs.add("user" to msg.removePrefix("$userName: ").trim())
                 }
-
                 msg.startsWith("$assistantName: ") -> {
                     pairs.add("assistant" to msg.removePrefix("$assistantName: ").trim())
                 }
-
                 else -> {
                     pairs.add("assistant" to msg.trim())
                 }
@@ -155,6 +153,9 @@ class MessageHandler {
         sendJob = scope.launch {
             try {
                 Log.d("MessageHandler", "Sending prompt: $prompt")
+                // Log word count for debugging
+                val wordCount = prompt.split("\\s+".toRegex()).size
+                Log.d("MessageHandler", "Prompt word count: $wordCount")
                 if (params.modelPath.isEmpty()) {
                     params.messages[params.messages.lastIndex] =
                         "${params.assistantName}: No model loaded. Please load a model from Settings."
@@ -164,64 +165,70 @@ class MessageHandler {
                 }
 
                 val responseBuilder = StringBuilder()
-                val checkIntent = true
-                val ambiguousWordsRegex = Regex(
-                    """\b(call(ing)?|phone|dial(ing)?|event|meet(ing)?|schedul(e|ing)?|set|appointment|calendar|tomorrow|today|[0-9]+(am|pm))\b""",
+                val twoWordCallRegex = Regex(
+                    """^(call|phone|dial)\s+(.+)$""",
                     RegexOption.IGNORE_CASE
                 )
+                val intent = when {
+                    twoWordCallRegex.matches(prompt) -> {
+                        Log.d("MessageHandler", "Two-word call pattern matched: $prompt")
+                        "call"
+                    }
+                    else -> {
+                        val ambiguousWordsRegex = Regex(
+                            """\b(call(ing)?|phone|dial(ing)?|event|meet(ing)?|schedul(e|ing)?|set|appointment|calendar|tomorrow|today|[0-9]+(am|pm))\b""",
+                            RegexOption.IGNORE_CASE
+                        )
+                        val checkIntent = true
+                        if (checkIntent && ambiguousWordsRegex.containsMatchIn(prompt)) {
+                            val intentPrompt = """
+                                You are an Intent Classifier. Analyze the user prompt and determine the intent.
+                                The possible intents are:
+                                - call: User explicitly requests to make a phone call to a person, using verbs like "call", "phone", or "dial" followed by a name, including familial or informal terms (e.g., "Call John", "Phone Sarah", "Dial Mummy", "Call Daddy", "Phone Brother").
+                                - calendar: User requests to create or manage a calendar event (e.g., "Schedule a meeting with John tomorrow at 5pm", "Set an event").
+                                - chat: User wants to engage in conversation, ask general or technical questions, or discuss topics not related to calls or calendar events (e.g., "What is a system call?", "Explain call by reference in C++").
+                                Rules:
+                                1. Output ONLY the intent name (call, calendar, or chat) in lowercase.
+                                2. Do NOT include any other text, explanation, or comments.
+                                3. If the intent is unclear, output "chat".
+                                4. For "call" intent:
+                                   - Requires explicit verbs "call", "phone", or "dial" followed by a person's name, which can be formal (e.g., "John", "Sarah"), familial (e.g., "Mummy", "Daddy", "Brother", "Sister"), or informal (e.g., "Buddy", "Mate").
+                                   - Exclude technical terms like "system call", "function call", or "call by reference".
+                                   - Examples: "Call Mummy" -> call, "Phone Daddy" -> call, "Dial Brother" -> call, "What is a system call?" -> chat.
+                                5. For "calendar" intent:
+                                   - Look for keywords like "schedule", "set", "meeting", "event", "appointment", or "calendar".
+                                   - Prioritize prompts with time references (e.g., "tomorrow", "5pm", "4pm evening") or date references.
+                                   - Examples: "Schedule a meeting with my boss at 4pm tomorrow" -> calendar, "Set an event for next week" -> calendar.
+                                6. For "chat" intent:
+                                   - Covers general questions, technical queries, programming topics, or anything not explicitly a phone call or calendar event.
+                                   - Examples: "What is call by reference?" -> chat, "Tell me about calendars" -> chat.
+                                7. If the prompt contains both call and calendar keywords, prioritize "calendar" if time/date references are present.
+                                8. Ensure familial terms like "Mummy", "Daddy", "Brother", "Sister" are correctly identified as names for the "call" intent, not confused with other intents.
+                            """.trimIndent()
 
-                val intent = if (checkIntent && ambiguousWordsRegex.containsMatchIn(prompt)) {
-                    val intentPrompt = """
-                        You are an Intent Classifier. Analyze the user prompt and determine the intent.
-                        The possible intents are:
-                        - call: User explicitly requests to make a phone call (e.g., "Call John", "Phone Sarah", "Call Mummy").
-                        - calendar: User requests to create or manage a calendar event (e.g., "Schedule a meeting with John tomorrow at 5pm", "Set an event").
-                        - chat: User wants to engage in conversation, ask general or technical questions, or discuss topics not related to calls or calendar events (e.g., "What is a system call?", "Explain call by reference in C++").
-                        Rules:
-                        1. Output ONLY the intent name (call, calendar, or chat) in lowercase.
-                        2. Do NOT include any other text, explanation, or comments.
-                        3. If the intent is unclear, output "chat".
-                        4. For "call" intent:
-                           - Requires explicit verbs like "call", "phone", or "dial" followed by a person's name (e.g., "John", "Sarah", "Mummy").
-                           - Exclude technical terms like "system call", "function call", or "call by reference".
-                           - Example: "Call John" -> call, "What is a system call?" -> chat.
-                        5. For "calendar" intent:
-                           - Look for keywords like "schedule", "set", "meeting", "event", "appointment", or "calendar".
-                           - Prioritize prompts with time references (e.g., "tomorrow", "5pm", "4pm evening") or date references.
-                           - Example: "Schedule a meeting with my boss at 4pm tomorrow" -> calendar, "Set an event for next week" -> calendar.
-                        6. For "chat" intent:
-                           - Covers general questions, technical queries, programming topics, or anything not explicitly a phone call or calendar event.
-                           - Example: "What is call by reference?" -> chat, "Tell me about calendars" -> chat.
-                        7. If the prompt contains both call and calendar keywords, prioritize "calendar" if time/date references are present.
-                    """.trimIndent()
+                            val intentChatMessages = listOf(
+                                "system" to intentPrompt,
+                                "user" to prompt
+                            )
+                            val formattedIntentPrompt =
+                                formatChatTemplate(intentChatMessages, addGenerationPrompt = true)
+                            Log.d("MessageHandler", "Formatted intent prompt: $formattedIntentPrompt")
 
-                    val intentChatMessages = listOf(
-                        "system" to intentPrompt,
-                        "user" to prompt
-                    )
-                    val formattedIntentPrompt =
-                        formatChatTemplate(intentChatMessages, addGenerationPrompt = true)
-                    Log.d("MessageHandler", "Formatted intent prompt: $formattedIntentPrompt")
-
-                    params.llama.send(formattedIntentPrompt, formatChat = true)
-                        .collect { partialResponse ->
-                            responseBuilder.append(partialResponse)
+                            params.llama.send(formattedIntentPrompt, formatChat = true)
+                                .collect { partialResponse ->
+                                    responseBuilder.append(partialResponse)
+                                }
+                            responseBuilder.toString().trim().lowercase()
+                        } else {
+                            Log.d(
+                                "MessageHandler",
+                                "No ambiguous words found or checkIntent disabled, defaulting to chat"
+                            )
+                            "chat"
                         }
-                    responseBuilder.toString().trim().lowercase()
-                } else {
-                    Log.d(
-                        "MessageHandler",
-                        "No ambiguous words found or checkIntent disabled, defaulting to chat"
-                    )
-                    "chat"
+                    }
                 }
                 Log.d("MessageHandler", "Determined intent: $intent")
-                Toast.makeText(
-                    params.context,
-                    "${intent.replaceFirstChar { it.uppercaseChar() }} intent activated",
-                    Toast.LENGTH_SHORT
-                ).show()
-
 
                 when (intent) {
                     "call" -> {
@@ -243,6 +250,12 @@ class MessageHandler {
                         val formattedCallPrompt =
                             formatChatTemplate(callChatMessages, addGenerationPrompt = true)
                         Log.d("MessageHandler", "Formatted call prompt: $formattedCallPrompt")
+
+                        Toast.makeText(
+                            params.context,
+                            "Connecting Call Services",
+                            Toast.LENGTH_SHORT
+                        ).show()
 
                         responseBuilder.clear()
                         params.llama.send(formattedCallPrompt, formatChat = true)
@@ -359,6 +372,12 @@ class MessageHandler {
                             "MessageHandler",
                             "Formatted calendar prompt: $formattedCalendarPrompt"
                         )
+
+                        Toast.makeText(
+                            params.context,
+                            "Connecting Calendar Services",
+                            Toast.LENGTH_SHORT
+                        ).show()
 
                         responseBuilder.clear()
                         params.llama.send(formattedCalendarPrompt, formatChat = true)
