@@ -41,7 +41,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
     val selectedCalendarId = mutableStateOf<Long?>(null)
     private lateinit var chatsDir: File
     private val llama = LLamaAndroid.instance().apply {
-        setContextSize(4096)
+        setContextSize(2048)
     }
     var currentChatId: String? = null
 

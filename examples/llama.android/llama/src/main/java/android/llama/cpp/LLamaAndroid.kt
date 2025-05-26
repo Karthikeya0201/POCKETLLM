@@ -38,7 +38,7 @@ class LLamaAndroid {
     }.asCoroutineDispatcher()
 
     private val nlen: Int = 4096 // 4K response size
-    private var contextSize: Int = 8192
+    private var contextSize: Int = 2048
 
     private external fun log_to_android()
     private external fun load_model(filename: String): Long
