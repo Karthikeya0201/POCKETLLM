@@ -38,6 +38,7 @@ android {
     }
     buildFeatures {
         compose = true
+        viewBinding = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.1"
@@ -47,8 +48,9 @@ android {
 dependencies {
     implementation("com.google.accompanist:accompanist-systemuicontroller:0.27.0")
     implementation("com.caverock:androidsvg-aar:1.4")
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
+    implementation("androidx.core:core-ktx:1.12.0") // Already present
+    implementation("androidx.appcompat:appcompat:1.6.1") // Added
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2") // Already present
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation(platform("androidx.compose:compose-bom:2023.08.00"))
     implementation("androidx.compose.ui:ui")
@@ -61,9 +63,10 @@ dependencies {
     implementation(project(":llama"))
     implementation("androidx.navigation:navigation-compose:2.7.6")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
-    testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    implementation("androidx.fragment:fragment-ktx:1.8.7")
+    testImplementation("junit:junit:4.13.2") // Already present
+    androidTestImplementation("androidx.test.ext:junit:1.1.5") // Already present
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1") // Already present
     androidTestImplementation(platform("androidx.compose:compose-bom:2023.08.00"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")

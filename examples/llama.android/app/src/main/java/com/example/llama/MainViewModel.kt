@@ -7,15 +7,16 @@ import android.provider.OpenableColumns
 import android.util.Log
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.llama.handler.MessageHandler
+import com.example.llama.handler.MessageHandlerParams
 import com.example.llama.model.ChatHistory
 import android.llama.cpp.LLamaAndroid
-import androidx.compose.runtime.State
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -37,9 +38,11 @@ class MainViewModel(private val context: Context) : ViewModel() {
     val isLoadingModel = mutableStateOf(false)
     val isGenerating = mutableStateOf(false)
     val showImportSuccess = mutableStateOf(false)
+    val calendarList = mutableStateOf<List<Pair<Long, String>>>(emptyList())
+    val selectedCalendarId = mutableStateOf<Long?>(null)
     private lateinit var chatsDir: File
     private val llama = LLamaAndroid.instance().apply {
-        setContextSize(8192)
+        setContextSize(2048)
     }
     private var sendJob: Job? = null
     var currentChatId: String? = null
@@ -67,7 +70,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
         viewModelScope.launch {
             try {
                 loadPrefs(sharedPrefs)
-                // Always attempt to reload the model if modelPath exists
                 if (modelPath.value.isNotEmpty()) {
                     val modelFile = File(modelPath.value)
                     Log.d("MainViewModel", "Checking model file: path=${modelPath.value}, exists=${modelFile.exists()}, absolutePath=${modelFile.absolutePath}, size=${if (modelFile.exists()) modelFile.length() else 0} bytes")
@@ -90,8 +92,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                         } catch (e: Exception) {
                             importError.value = "Failed to reload model on startup: ${e.message}"
                             setModelLoaded(false)
-                            // Do not clear modelPath to allow retry in ChatScreen
-                            Log.e("MainViewModel", "Model reload error on startup: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
+                            Log.e("MainViewModel", "Model reload error: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
                         } finally {
                             isLoadingModel.value = false
                         }
@@ -150,6 +151,8 @@ class MainViewModel(private val context: Context) : ViewModel() {
         modelPath.value = prefs.getString("modelPath", "") ?: ""
         _isModelLoaded.value = prefs.getBoolean("isModelLoaded", false)
         _isFirstLaunch.value = prefs.getBoolean("isFirstLaunch", true)
+        val calendarId = prefs.getLong("selectedCalendarId", -1L)
+        if (calendarId != -1L) selectedCalendarId.value = calendarId
         val downloadedModelsJson = prefs.getString("downloadedModels", null)
         _downloadedModels.value = if (downloadedModelsJson != null) {
             Json.decodeFromString<List<String>>(downloadedModelsJson)
@@ -168,7 +171,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
             Log.e("MainViewModel", "Failed to initialize LLaMA: ${e.stackTraceToString()}")
             importError.value = "Failed to initialize model library: ${e.message}"
         }
-        Log.d("MainViewModel", "Loaded preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}, downloadedModels=${_downloadedModels.value}")
+        Log.d(
+            "MainViewModel",
+            "Loaded preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}, downloadedModels=${_downloadedModels.value}, selectedCalendarId=${selectedCalendarId.value}"
+        )
     }
 
     fun savePrefs(prefs: SharedPreferences) {
@@ -180,9 +186,13 @@ class MainViewModel(private val context: Context) : ViewModel() {
             putString("historyDir", chatsDir.parent ?: context.filesDir.absolutePath)
             putString("downloadedModels", Json.encodeToString(_downloadedModels.value))
             putString("selectedFileName", selectedFileName.value)
+            selectedCalendarId.value?.let { putLong("selectedCalendarId", it) }
             apply()
         }
-        Log.d("MainViewModel", "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${_isModelLoaded.value}, downloadedModels=${_downloadedModels.value}, selectedFileName=${selectedFileName.value}")
+        Log.d(
+            "MainViewModel",
+            "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${_isModelLoaded.value}, downloadedModels=${_downloadedModels.value}, selectedFileName=${selectedFileName.value}, selectedCalendarId=${selectedCalendarId.value}"
+        )
         try {
             llama.initialize(userName.value, assistantName.value)
             Log.d("MainViewModel", "LLaMA re-initialized after saving preferences")
@@ -220,7 +230,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
         val chatId = currentChatId ?: UUID.randomUUID().toString()
 
         val userPrefix = "${userName.value}: "
-        val firstMsg = messages.first()
+        val firstMsg = messages.firstOrNull { it.startsWith(userPrefix) } ?: messages.firstOrNull() ?: ""
         val trimmedTitle = if (firstMsg.startsWith(userPrefix)) {
             firstMsg.removePrefix(userPrefix).trimStart()
         } else {
@@ -249,7 +259,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 } else {
                     chatHistories.add(chatHistory)
                     currentChatId = chatId
-                    Log.d("MainViewModel", "Added new chat: $chatId")
+                    Log.d("MainViewModel", "Created new chat: $chatId")
                 }
                 chatHistories.sortByDescending { it.date }
                 Log.d("MainViewModel", "Chat list updated, size: ${chatHistories.size}")
@@ -373,7 +383,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
                         return@launch
                     }
                 }
-                // Avoid reloading if the same model is selected
                 if (modelPath.value == modelPathStr && isModelLoaded.value) {
                     Log.d("MainViewModel", "Model already loaded: $modelPathStr, skipping reload")
                     isLoadingModel.value = false
@@ -406,7 +415,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 savePrefs(sharedPrefs)
                 Log.d("MainViewModel", "Model loaded successfully: $modelPathStr, selectedFileName=${selectedFileName.value}, isModelLoaded=${isModelLoaded.value}")
             } catch (e: Exception) {
-                importError.value = "Failed to load model: ${e.message}"
+                importError.value = "Failed to load model: ${e.stackTraceToString()}"
                 setModelLoaded(false)
                 savePrefs(sharedPrefs)
                 Log.e("MainViewModel", "Model load error: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
@@ -425,7 +434,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
     fun startNewChat() {
         Log.d("MainViewModel", "Starting new chat")
         viewModelScope.launch {
-            saveCurrentChat()
             messages.clear()
             currentChatId = null
             sendJob?.cancel()
@@ -460,64 +468,24 @@ class MainViewModel(private val context: Context) : ViewModel() {
     }
 
     fun send(prompt: String = message.value.trim()) {
-        if (prompt.isBlank()) {
-            Log.d("MainViewModel", "Empty prompt, skipping send")
-            return
-        }
-        isGenerating.value = true
-        sendJob?.cancel()
-        messages.add("${userName.value}: $prompt")
-        sendJob = viewModelScope.launch {
-            try {
-                Log.d("MainViewModel", "Sending prompt: $prompt")
-                Log.d("MainViewModel", "Current model state: modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
-                if (modelPath.value.isEmpty() || !isModelLoaded.value) {
-                    messages.add("${assistantName.value}: No model loaded. Please load a model from Settings.")
-                    isGenerating.value = false
-                    Log.d("MainViewModel", "No model loaded: modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
-                    return@launch
-                }
-
-                val responseBuilder = StringBuilder()
-                messages.add("${assistantName.value}: ")
-                Log.d("MainViewModel", "Added initial assistant message marker")
-
-                llama.send(prompt).collect { partialResponse ->
-                    responseBuilder.append(partialResponse)
-                    val currentResponse = responseBuilder.toString().trim()
-
-                    if (currentResponse.isNotEmpty() &&
-                        !currentResponse.endsWith("...") &&
-                        currentResponse != messages.lastOrNull()?.removePrefix("${assistantName.value}: ")?.trim()
-                    ) {
-                        val formattedResponse = currentResponse
-                            .replace("\n\n", "\n")
-                            .replace(Regex(" {2,}"), " ")
-                        if (messages.lastOrNull()?.startsWith("${assistantName.value}:") == true) {
-                            messages[messages.lastIndex] = "${assistantName.value}: $formattedResponse"
-                        } else {
-                            messages.add("${assistantName.value}: $formattedResponse")
-                        }
-                        Log.d("MainViewModel", "Updated response: $formattedResponse")
-                    }
-                }
-
-                val fullResponse = responseBuilder.toString().trim()
-                if (fullResponse.isNotEmpty() && messages.lastOrNull() != "${assistantName.value}: $fullResponse") {
-                    messages[messages.lastIndex] = "${assistantName.value}: $fullResponse"
-                }
-                Log.d("MainViewModel", "Response completed: $fullResponse")
-            } catch (e: Exception) {
-                if (e !is CancellationException) {
-                    messages.add("${assistantName.value}: Error: ${e.message}")
-                    Log.e("MainViewModel", "Send error: ${e.stackTraceToString()}")
-                }
-            } finally {
-                isGenerating.value = false
-                sendJob = null
-                Log.d("MainViewModel", "Sending finished, saving chat")
-                saveCurrentChat()
-            }
+        val messageHandler = MessageHandler()
+        val params = MessageHandlerParams(
+            context = context,
+            userName = userName.value,
+            assistantName = assistantName.value,
+            modelPath = modelPath.value,
+            messages = messages,
+            chatHistories = chatHistories,
+            isGenerating = isGenerating,
+            currentChatId = mutableStateOf(currentChatId),
+            selectedCalendarId = selectedCalendarId,
+            calendarList = calendarList,
+            chatsDir = chatsDir,
+            llama = llama
+        )
+        viewModelScope.launch {
+            messageHandler.sendMessage(params, prompt, viewModelScope)
+            saveCurrentChat() // Save chat after adding user and AI messages
         }
     }
 
@@ -529,6 +497,9 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 (it.length < 10 || it.endsWith("..."))
         }
         Log.d("MainViewModel", "Paused, cleaned partial responses")
+        viewModelScope.launch {
+            saveCurrentChat() // Save chat after pausing to capture any changes
+        }
     }
 
     fun log(message: String) {
@@ -543,11 +514,12 @@ class MainViewModel(private val context: Context) : ViewModel() {
         super.onCleared()
         viewModelScope.launch {
             try {
+                saveCurrentChat() // Save current chat before unloading
                 llama.unload()
                 setModelLoaded(false)
-                Log.d("MainViewModel", "ViewModel cleared, unloaded LLM")
+                Log.d("MainViewModel", "ViewModel cleared, saved chat and unloaded LLM")
             } catch (e: Exception) {
-                Log.e("MainViewModel", "Error unloading LLM on ViewModel clear: ${e.stackTraceToString()}")
+                Log.e("MainViewModel", "Error during onCleared: ${e.stackTraceToString()}")
             }
         }
     }

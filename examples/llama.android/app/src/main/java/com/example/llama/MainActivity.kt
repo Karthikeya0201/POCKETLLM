@@ -40,35 +40,21 @@ class MainActivity : ComponentActivity() {
     private val clipboardManager by lazy { getSystemService<ClipboardManager>()!! }
     private val activityManager by lazy { getSystemService<ActivityManager>()!! }
 
-    private val storagePermissionLauncher = registerForActivityResult(
+    private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        Log.d("MainActivity", "Storage permission request result: $permissions")
-        if (permissions.all { it.value }) {
-            viewModel.log("Storage permissions granted")
-            Log.d("MainActivity", "Storage permissions granted: $permissions")
-        } else {
-            viewModel.log("Storage permissions denied")
-            Log.w("MainActivity", "Storage permissions denied: $permissions")
-            if (!shouldShowRequestPermissionRationale(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
-                Log.d("MainActivity", "Legacy storage permissions permanently denied, directing to settings")
-                openAppSettings()
-            }
-        }
-    }
-
-    private val audioPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        Log.d("MainActivity", "Audio permission request result: isGranted=$isGranted")
-        if (isGranted) {
-            viewModel.log("RECORD_AUDIO permission granted")
-        } else {
-            viewModel.log("RECORD_AUDIO permission denied")
-            Log.w("MainActivity", "Storage permissions denied: $isGranted")
-            if (!shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) {
-                Log.d("MainActivity", "RECORD_AUDIO permission permanently denied, directing to settings")
-                openAppSettings()
+        Log.d("MainActivity", "Permission request result: $permissions")
+        permissions.forEach { (permission, isGranted) ->
+            if (isGranted) {
+                viewModel.log("$permission granted")
+                Log.d("MainActivity", "$permission granted")
+            } else {
+                viewModel.log("$permission denied")
+                Log.w("MainActivity", "$permission denied")
+                if (!shouldShowRequestPermissionRationale(permission)) {
+                    Log.d("MainActivity", "$permission permanently denied, directing to settings")
+                    openAppSettings()
+                }
             }
         }
     }
@@ -87,42 +73,61 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkAndRequestPermissions() {
+        // List of dangerous permissions that require runtime approval
+        val dangerousPermissions = arrayOf(
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_CALENDAR,
+            Manifest.permission.WRITE_CALENDAR,
+            Manifest.permission.READ_CONTACTS,
+            Manifest.permission.SEND_SMS,
+        )
+
+        // Handle MANAGE_EXTERNAL_STORAGE for Android 11+ (API 30+)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             if (!Environment.isExternalStorageManager()) {
-                Log.d("MainActivity", "Android 11+: Checking MANAGE_EXTERNAL_STORAGE")
+                Log.d("MainActivity", "Android 11+: Requesting MANAGE_EXTERNAL_STORAGE")
                 requestManageStorage()
             } else {
                 Log.d("MainActivity", "MANAGE_EXTERNAL_STORAGE already granted")
             }
-        } else {
-            val permissionsToRequest = mutableListOf<String>()
-            val requiredPermissions = arrayOf(
-                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                Manifest.permission.READ_EXTERNAL_STORAGE
-            )
+        }
 
-            requiredPermissions.forEach { permission ->
-                val granted = ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
-                Log.d("MainActivity", "Checking $permission: granted=$granted")
-                if (!granted) {
-                    permissionsToRequest.add(permission)
-                }
+        // Check and request dangerous permissions
+        val permissionsToRequest = mutableListOf<String>()
+        dangerousPermissions.forEach { permission ->
+            // Skip storage permissions on Android 11+ as MANAGE_EXTERNAL_STORAGE is used
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
+                (permission == Manifest.permission.READ_EXTERNAL_STORAGE ||
+                    permission == Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            ) {
+                return@forEach
             }
-
-            if (permissionsToRequest.isNotEmpty()) {
-                Log.d("MainActivity", "Requesting legacy storage permissions: $permissionsToRequest")
-                storagePermissionLauncher.launch(permissionsToRequest.toTypedArray())
-            } else {
-                Log.d("MainActivity", "All legacy storage permissions already granted")
+            val granted = ContextCompat.checkSelfPermission(
+                this,
+                permission
+            ) == PackageManager.PERMISSION_GRANTED
+            Log.d("MainActivity", "Checking $permission: granted=$granted")
+            if (!granted) {
+                permissionsToRequest.add(permission)
             }
         }
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            Log.d("MainActivity", "Requesting RECORD_AUDIO permission")
-            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        if (permissionsToRequest.isNotEmpty()) {
+            Log.d("MainActivity", "Requesting permissions: $permissionsToRequest")
+            permissionsLauncher.launch(permissionsToRequest.toTypedArray())
         } else {
-            Log.d("MainActivity", "RECORD_AUDIO permission already granted")
+            Log.d("MainActivity", "All required permissions already granted")
         }
+
+        // Normal permissions (INTERNET, ACCESS_NETWORK_STATE) are granted at install time
+        Log.d(
+            "MainActivity",
+            "Normal permissions (INTERNET, ACCESS_NETWORK_STATE) are granted at install time"
+        )
     }
 
     private fun requestManageStorage() {
@@ -193,16 +198,13 @@ class MainActivity : ComponentActivity() {
                     prefs = prefs,
                     requestPermissions = { permissions ->
                         Log.d("MainActivity", "Requesting permissions via callback: $permissions")
-                        if (permissions.contains(Manifest.permission.RECORD_AUDIO)) {
-                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        }
-                        if (permissions.contains(Manifest.permission.WRITE_EXTERNAL_STORAGE) ||
-                            permissions.contains(Manifest.permission.READ_EXTERNAL_STORAGE)) {
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                                requestManageStorage()
-                            } else {
-                                storagePermissionLauncher.launch(permissions)
-                            }
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
+                            (permissions.contains(Manifest.permission.READ_EXTERNAL_STORAGE) ||
+                                permissions.contains(Manifest.permission.WRITE_EXTERNAL_STORAGE))
+                        ) {
+                            requestManageStorage()
+                        } else {
+                            permissionsLauncher.launch(permissions)
                         }
                     }
                 )
@@ -240,10 +242,12 @@ fun AppNavigation(
             Log.d("MainActivity", "Starting at setup screen due to first launch")
             "setup"
         }
+
         !viewModel.isModelLoaded.value -> {
             Log.d("MainActivity", "Starting at setup screen due to model not loaded")
             "setup"
         }
+
         else -> {
             Log.d("MainActivity", "Starting at chat screen")
             "chat"
@@ -275,7 +279,10 @@ fun AppNavigation(
                 )
             } else {
                 LaunchedEffect(Unit) {
-                    Log.d("MainActivity", "Model not loaded in chat route, navigating to setup screen")
+                    Log.d(
+                        "MainActivity",
+                        "Model not loaded in chat route, navigating to setup screen"
+                    )
                     navController.navigate("setup") {
                         popUpTo("chat") { inclusive = true }
                     }

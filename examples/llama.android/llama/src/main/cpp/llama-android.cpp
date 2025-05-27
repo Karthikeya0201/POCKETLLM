@@ -116,7 +116,7 @@ Java_android_llama_cpp_LLamaAndroid_new_1context(JNIEnv *env, jobject, jlong jmo
         return 0;
     }
 
-    const int n_threads = 4;
+    const int n_threads =  std::max(1, std::min(8, (int) sysconf(_SC_NPROCESSORS_ONLN) - 2));
     LOGi("Using fixed %d threads", n_threads);
 
     llama_context_params ctx_params = llama_context_default_params();
@@ -148,12 +148,12 @@ Java_android_llama_cpp_LLamaAndroid_new_1context_1with_1size(JNIEnv *env, jobjec
         return 0;
     }
 
-    const int n_threads = 6;
+    const int n_threads = std::max(1, std::min(8, (int) sysconf(_SC_NPROCESSORS_ONLN) - 2));
     LOGi("Using fixed %d threads", n_threads);
 
     llama_context_params ctx_params = llama_context_default_params();
 
-    ctx_params.n_ctx           = ctx_size;  // Use the passed context size
+    ctx_params.n_ctx           = 2048;
     ctx_params.n_threads       = n_threads;
     ctx_params.n_threads_batch = n_threads;
 
