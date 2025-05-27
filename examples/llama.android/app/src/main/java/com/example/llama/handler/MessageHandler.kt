@@ -7,7 +7,6 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.example.llama.model.ChatHistory
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -67,11 +66,9 @@ class MessageHandler {
                 msg.startsWith("$userName: ") -> {
                     pairs.add("user" to msg.removePrefix("$userName: ").trim())
                 }
-
                 msg.startsWith("$assistantName: ") -> {
                     pairs.add("assistant" to msg.removePrefix("$assistantName: ").trim())
                 }
-
                 else -> {
                     pairs.add("assistant" to msg.trim())
                 }
@@ -156,7 +153,6 @@ class MessageHandler {
         sendJob = scope.launch {
             try {
                 Log.d("MessageHandler", "Sending prompt: $prompt")
-                // Log word count for debugging
                 val wordCount = prompt.split("\\s+".toRegex()).size
                 Log.d("MessageHandler", "Prompt word count: $wordCount")
                 if (params.modelPath.isEmpty()) {
@@ -176,40 +172,31 @@ class MessageHandler {
                     """^(call|phone|dial)\s+([a-zA-Z\s\-']+)$""",
                     RegexOption.IGNORE_CASE
                 )
+                val smsRegex = Regex(
+                    """^(sms|text|message)\s+([a-zA-Z\s\-']+)\s*(.+)$""",
+                    RegexOption.IGNORE_CASE
+                )
                 val calendarKeywordsRegex = Regex(
                     """\b(schedule)\b.*\b(event|task)\b.*\b(calendar)\b""",
                     RegexOption.IGNORE_CASE
                 )
                 val ambiguousWordsRegex = Regex(
-                    """\b(call(ing)?|phone|dial(ing)?|event|meet(ing)?|schedul(e|ing)?|set|appointment|calendar|tomorrow|today|[0-9]+(am|pm))\b""",
+                    """\b(call(ing)?|phone|dial(ing)?|event|meet(ing)?|schedul(e|ing)?|set|appointment|calendar|tomorrow|today|[0-9]+(am|pm)|sms|text|message)\b""",
                     RegexOption.IGNORE_CASE
                 )
 
                 val intent = when {
+                    smsRegex.matches(prompt.trim()) -> {
+                        Log.d("MessageHandler", "SMS pattern matched: $prompt")
+                        "sms"
+                    }
                     questionWordsRegex.find(prompt) != null -> {
                         Log.d("MessageHandler", "Question word detected: $prompt")
                         "chat"
                     }
                     twoWordCallRegex.matches(prompt.trim()) -> {
                         Log.d("MessageHandler", "Two-word call pattern matched: $prompt")
-                        val match = twoWordCallRegex.find(prompt.trim())!!
-                        val nameOrNumber = match.groupValues[2].trim()
-                        Log.d("MessageHandler", "Extracted name or number: '$nameOrNumber'")
-                        Toast.makeText(
-                            params.context,
-                            "Connecting Call Services",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        delay(1000)
-                        val intentCall = IntentCall(params.context)
-                        val callSuccess = intentCall.initiateCall(nameOrNumber)
-                        params.messages[params.messages.lastIndex] = if (callSuccess) {
-                            "${params.assistantName}: Calling $nameOrNumber..."
-                        } else {
-                            "${params.assistantName}: Failed to call $nameOrNumber. Ensure the contact exists."
-                        }
-                        Log.d("MessageHandler", "Call attempt for '$nameOrNumber' success: $callSuccess")
-                        return@launch // Exit after handling call
+                        "call"
                     }
                     calendarKeywordsRegex.containsMatchIn(prompt) -> {
                         Log.d("MessageHandler", "Calendar keywords matched: $prompt")
@@ -219,26 +206,27 @@ class MessageHandler {
                         val intentPrompt = """
                         You are an Intent Classifier. Analyze the user prompt and determine the intent.
                         The possible intents are:
-                        - call: User explicitly requests to make a phone call to a person, using verbs like "call", "phone", or "dial" followed by a name, including familial or informal terms (e.g., "Call John", "Phone Sarah", "Dial Mummy", "Call Daddy", "Phone Brother").
-                        - calendar: User requests to create or manage a calendar event (e.g., "Schedule a meeting with John tomorrow at 5pm", "Set an event").
-                        - chat: User wants to engage in conversation, ask general or technical questions, or discuss topics not related to calls or calendar events (e.g., "What is a system call?", "Explain call by reference in C++").
+                        - call: User explicitly requests to make a phone call to a person, using verbs like "call", "phone", or "dial" followed by a name.
+                        - sms: User explicitly requests to send an SMS, using verbs like "sms", "text", or "message" followed by a name and message content.
+                        - calendar: User requests to create or manage a calendar event.
+                        - chat: User wants to engage in conversation or ask general/technical questions.
                         Rules:
-                        1. Output ONLY the intent name (call, calendar, or chat) in lowercase.
+                        1. Output ONLY the intent name (call, sms, calendar, or chat) in lowercase.
                         2. Do NOT include any other text, explanation, or comments.
                         3. If the intent is unclear, output "chat".
-                        4. For "call" intent:
-                           - Requires explicit verbs "call", "phone", or "dial" followed by a person's name, which can be formal (e.g., "John", "Sarah"), familial (e.g., "Mummy", "Daddy", "Brother", "Sister"), or informal (e.g., "Buddy", "Mate").
-                           - Exclude technical terms like "system call", "function call", or "call by reference".
-                           - Examples: "Call Mummy" -> call, "Phone Daddy" -> call, "Dial Brother" -> call, "What is a system call?" -> chat.
-                        5. For "calendar" intent:
+                        4. For "sms" intent:
+                           - Requires explicit verbs "sms", "text", or "message" followed by a name and message content.
+                           - Examples: "Text John Hello" -> sms, "SMS Sarah Meeting at 5pm" -> sms.
+                        5. For "call" intent:
+                           - Requires explicit verbs "call", "phone", or "dial" followed by a person's name.
+                           - Examples: "Call John" -> call, "Phone Sarah" -> call.
+                        6. For "calendar" intent:
                            - Look for keywords like "schedule", "set", "meeting", "event", "appointment", or "calendar".
-                           - Prioritize prompts with time references (e.g., "tomorrow", "5pm", "4pm evening") or date references.
-                           - Examples: "Schedule a meeting with my boss at 4pm tomorrow" -> calendar, "Set an event for next week" -> calendar.
-                        6. For "chat" intent:
-                           - Covers general questions, technical queries, programming topics, or anything not explicitly a phone call or calendar event.
-                           - Examples: "What is call by reference?" -> chat, "Tell me about calendars" -> chat.
-                        7. If the prompt contains both call and calendar keywords, prioritize "calendar" if time/date references are present.
-                        8. Ensure familial terms like "Mummy", "Daddy", "Brother", "Sister" are correctly identified as names for the "call" intent, not confused with other intents.
+                           - Examples: "Schedule a meeting with John tomorrow at 5pm" -> calendar.
+                        7. For "chat" intent:
+                           - Covers general questions, technical queries, or anything not explicitly a phone call, SMS, or calendar event.
+                           - Examples: "What is call by reference?" -> chat.
+                        8. Prioritize "sms" if "sms", "text", or "message" is explicitly mentioned.
                     """.trimIndent()
 
                         val intentChatMessages = listOf(
@@ -256,16 +244,85 @@ class MessageHandler {
                         responseBuilder.toString().trim().lowercase()
                     }
                     else -> {
-                        Log.d(
-                            "MessageHandler",
-                            "No ambiguous words found, defaulting to chat"
-                        )
+                        Log.d("MessageHandler", "No ambiguous words found, defaulting to chat")
                         "chat"
                     }
                 }
                 Log.d("MessageHandler", "Determined intent: $intent")
 
                 when (intent) {
+                    "sms" -> {
+                        val smsPrompt = """
+                        You are an SMS Extractor. Follow these rules exactly:
+                        1. The User Prompt describes an SMS request (e.g., "Text John Hello").
+                        2. Extract the contact name or number and the message content.
+                        3. Output MUST be in this format, with no additional text or explanations:
+                           Contact: <Name or Number>
+                           Message: <Message Content>
+                        4. Contact handling:
+                           - Extract the name or phone number following verbs like "sms", "text", or "message".
+                           - If a phone number is provided, keep it as is.
+                           - If a name is provided, use the exact name (e.g., "John", "my boss").
+                        5. Message handling:
+                           - Extract all text after the contact name/number as the message.
+                           - If no message content is provided, use an empty string.
+                        6. Do NOT include any other text, comments, or explanations.
+                        7. Examples:
+                           - Prompt: "Text John Hello there"
+                             Contact: John
+                             Message: Hello there
+                           - Prompt: "SMS +1234567890 Meeting at 5pm"
+                             Contact: +1234567890
+                             Message: Meeting at 5pm
+                           - Prompt: "Message Sarah"
+                             Contact: Sarah
+                             Message:
+                        """.trimIndent()
+
+                        val smsChatMessages = listOf(
+                            "system" to smsPrompt,
+                            "user" to prompt
+                        )
+                        val formattedSMSPrompt =
+                            formatChatTemplate(smsChatMessages, addGenerationPrompt = true)
+                        Log.d("MessageHandler", "Formatted SMS prompt: $formattedSMSPrompt")
+
+                        Toast.makeText(
+                            params.context,
+                            "Connecting SMS Services",
+                            Toast.LENGTH_SHORT
+                        ).show()
+
+                        responseBuilder.clear()
+                        params.llama.send(formattedSMSPrompt, formatChat = true)
+                            .collect { partialResponse ->
+                                responseBuilder.append(partialResponse)
+                            }
+                        val smsDetails = responseBuilder.toString().trim()
+                        Log.d("MessageHandler", "SMS details: $smsDetails")
+
+                        val detailsMap = smsDetails.lines().associate {
+                            val (key, value) = it.split(": ", limit = 2)
+                            key.trim() to value.trim()
+                        }
+                        val contact = detailsMap["Contact"] ?: ""
+                        val message = detailsMap["Message"] ?: ""
+
+                        if (contact.isBlank()) {
+                            params.messages[params.messages.lastIndex] =
+                                "${params.assistantName}: Invalid contact name or number"
+                        } else {
+                            val intentSMS = IntentSMS(params.context)
+                            val smsSuccess = intentSMS.sendSMS(contact, message)
+                            params.messages[params.messages.lastIndex] = if (smsSuccess) {
+                                "${params.assistantName}: Sending SMS to $contact..."
+                            } else {
+                                "${params.assistantName}: Failed to send SMS to $contact. Ensure the contact exists."
+                            }
+                            Log.d("MessageHandler", "SMS attempt for '$contact' success: $smsSuccess")
+                        }
+                    }
+
                     "call" -> {
                         val callPrompt = """
                         You are a Caller Name Extractor. Follow these rules exactly:
@@ -276,7 +333,7 @@ class MessageHandler {
                         4. Do NOT include any other text.
                         5. Do NOT explain, greet, or comment. Output only the required format.
                         6. If no valid name is found, output an empty string.
-                    """.trimIndent()
+                        """.trimIndent()
 
                         val callChatMessages = listOf(
                             "system" to callPrompt,
@@ -404,10 +461,7 @@ class MessageHandler {
                         )
                         val formattedCalendarPrompt =
                             formatChatTemplate(calendarChatMessages, addGenerationPrompt = true)
-                        Log.d(
-                            "MessageHandler",
-                            "Formatted calendar prompt: $formattedCalendarPrompt"
-                        )
+                        Log.d("MessageHandler", "Formatted calendar prompt: $formattedCalendarPrompt")
 
                         Toast.makeText(
                             params.context,
