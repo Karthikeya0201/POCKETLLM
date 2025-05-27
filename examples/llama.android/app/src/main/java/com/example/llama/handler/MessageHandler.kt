@@ -66,9 +66,11 @@ class MessageHandler {
                 msg.startsWith("$userName: ") -> {
                     pairs.add("user" to msg.removePrefix("$userName: ").trim())
                 }
+
                 msg.startsWith("$assistantName: ") -> {
                     pairs.add("assistant" to msg.removePrefix("$assistantName: ").trim())
                 }
+
                 else -> {
                     pairs.add("assistant" to msg.trim())
                 }
@@ -168,18 +170,22 @@ class MessageHandler {
                     """^(explain|what|why|where|how|when|who|which|describe|tell|define|clarify)\b""",
                     RegexOption.IGNORE_CASE
                 )
+
                 val twoWordCallRegex = Regex(
                     """^(call|phone|dial)\s+([a-zA-Z\s\-']+)$""",
                     RegexOption.IGNORE_CASE
                 )
+
                 val smsRegex = Regex(
                     """^(sms|text|message)\s+([a-zA-Z\s\-']+)\s*(.+)$""",
                     RegexOption.IGNORE_CASE
                 )
+
                 val calendarKeywordsRegex = Regex(
-                    """\b(schedule)\b.*\b(event|task)\b.*\b(calendar)\b""",
+                    """\b(schedule|insert|plan|add)\b.*\b(event|task)\b.*\b(calendar)\b""",
                     RegexOption.IGNORE_CASE
                 )
+
                 val ambiguousWordsRegex = Regex(
                     """\b(call(ing)?|phone|dial(ing)?|event|meet(ing)?|schedul(e|ing)?|set|appointment|calendar|tomorrow|today|[0-9]+(am|pm)|sms|text|message)\b""",
                     RegexOption.IGNORE_CASE
@@ -190,44 +196,71 @@ class MessageHandler {
                         Log.d("MessageHandler", "SMS pattern matched: $prompt")
                         "sms"
                     }
+
                     questionWordsRegex.find(prompt) != null -> {
                         Log.d("MessageHandler", "Question word detected: $prompt")
                         "chat"
                     }
+
                     twoWordCallRegex.matches(prompt.trim()) -> {
                         Log.d("MessageHandler", "Two-word call pattern matched: $prompt")
                         "call"
+                        val match = twoWordCallRegex.find(prompt.trim())!!
+                        val nameOrNumber = match.groupValues[2].trim()
+
+                        Log.d("MessageHandler", "Extracted name or number: '$nameOrNumber'")
+                        Toast.makeText(
+                            params.context,
+                            "Connecting Call Services",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        delay(1000)
+
+                        val intentCall = IntentCall(params.context)
+                        val callSuccess = intentCall.initiateCall(nameOrNumber)
+                        params.messages[params.messages.lastIndex] = if (callSuccess) {
+                            "${params.assistantName}: Calling $nameOrNumber..."
+                        } else {
+                            "${params.assistantName}: Failed to call $nameOrNumber. Ensure the contact exists."
+                        }
+                        Log.d(
+                            "MessageHandler",
+                            "Call attempt for '$nameOrNumber' success: $callSuccess"
+                        )
+                        return@launch
                     }
+
                     calendarKeywordsRegex.containsMatchIn(prompt) -> {
                         Log.d("MessageHandler", "Calendar keywords matched: $prompt")
                         "calendar"
                     }
+
                     ambiguousWordsRegex.containsMatchIn(prompt) -> {
                         val intentPrompt = """
-                        You are an Intent Classifier. Analyze the user prompt and determine the intent.
-                        The possible intents are:
-                        - call: User explicitly requests to make a phone call to a person, using verbs like "call", "phone", or "dial" followed by a name.
-                        - sms: User explicitly requests to send an SMS, using verbs like "sms", "text", or "message" followed by a name and message content.
-                        - calendar: User requests to create or manage a calendar event.
-                        - chat: User wants to engage in conversation or ask general/technical questions.
-                        Rules:
-                        1. Output ONLY the intent name (call, sms, calendar, or chat) in lowercase.
-                        2. Do NOT include any other text, explanation, or comments.
-                        3. If the intent is unclear, output "chat".
-                        4. For "sms" intent:
-                           - Requires explicit verbs "sms", "text", or "message" followed by a name and message content.
-                           - Examples: "Text John Hello" -> sms, "SMS Sarah Meeting at 5pm" -> sms.
-                        5. For "call" intent:
-                           - Requires explicit verbs "call", "phone", or "dial" followed by a person's name.
-                           - Examples: "Call John" -> call, "Phone Sarah" -> call.
-                        6. For "calendar" intent:
-                           - Look for keywords like "schedule", "set", "meeting", "event", "appointment", or "calendar".
-                           - Examples: "Schedule a meeting with John tomorrow at 5pm" -> calendar.
-                        7. For "chat" intent:
-                           - Covers general questions, technical queries, or anything not explicitly a phone call, SMS, or calendar event.
-                           - Examples: "What is call by reference?" -> chat.
-                        8. Prioritize "sms" if "sms", "text", or "message" is explicitly mentioned.
-                    """.trimIndent()
+                            You are an Intent Classifier. Analyze the user prompt and determine the intent.
+                            The possible intents are:
+                            - call: User explicitly requests to make a phone call to a person, using verbs like "call", "phone", or "dial" followed by a name.
+                            - sms: User explicitly requests to send an SMS, using verbs like "sms", "text", or "message" followed by a name and message content.
+                            - calendar: User requests to create or manage a calendar event.
+                            - chat: User wants to engage in conversation or ask general/technical questions.
+                            Rules:
+                            1. Output ONLY the intent name (call, sms, calendar, or chat) in lowercase.
+                            2. Do NOT include any other text, explanation, or comments.
+                            3. If the intent is unclear, output "chat".
+                            4. For "sms" intent:
+                               - Requires explicit verbs "sms", "text", or "message" followed by a name and message content.
+                               - Examples: "Text John Hello" -> sms, "SMS Sarah Meeting at 5pm" -> sms.
+                            5. For "call" intent:
+                               - Requires explicit verbs "call", "phone", or "dial" followed by a person's name.
+                               - Examples: "Call John" -> call, "Phone Sarah" -> call.
+                            6. For "calendar" intent:
+                               - Look for keywords like "schedule", "set", "meeting", "event", "appointment", or "calendar".
+                               - Examples: "Schedule a meeting with John tomorrow at 5pm" -> calendar.
+                            7. For "chat" intent:
+                               - Covers general questions, technical queries, or anything not explicitly a phone call, SMS, or calendar event.
+                               - Examples: "What is call by reference?" -> chat.
+                            8. Prioritize "sms" if "sms", "text", or "message" is explicitly mentioned.
+                        """.trimIndent()
 
                         val intentChatMessages = listOf(
                             "system" to intentPrompt,
@@ -243,6 +276,7 @@ class MessageHandler {
                             }
                         responseBuilder.toString().trim().lowercase()
                     }
+
                     else -> {
                         Log.d("MessageHandler", "No ambiguous words found, defaulting to chat")
                         "chat"
@@ -319,7 +353,10 @@ class MessageHandler {
                             } else {
                                 "${params.assistantName}: Failed to send SMS to $contact. Ensure the contact exists."
                             }
-                            Log.d("MessageHandler", "SMS attempt for '$contact' success: $smsSuccess")
+                            Log.d(
+                                "MessageHandler",
+                                "SMS attempt for '$contact' success: $smsSuccess"
+                            )
                         }
                     }
 
@@ -368,7 +405,10 @@ class MessageHandler {
                             } else {
                                 "${params.assistantName}: Failed to call $nameToCall. Ensure the contact exists."
                             }
-                            Log.d("MessageHandler", "Call attempt for '$nameToCall' success: $callSuccess")
+                            Log.d(
+                                "MessageHandler",
+                                "Call attempt for '$nameToCall' success: $callSuccess"
+                            )
                         }
                     }
 
@@ -392,68 +432,68 @@ class MessageHandler {
                         val inTwoDaysDate = dateFormat.format(calendar.time)
 
                         val calendarPrompt = """
-                        You are a Calendar Event Extractor. Follow these rules exactly:
-                        1. The User Prompt describes a calendar event (e.g., "Set a meeting with John tomorrow at 5pm for 1 hour").
-                        2. Extract the event details: title, date, time, and duration.
-                        3. Output MUST be in this format, with no additional text or explanations:
-                           Title: <Event Title>
-                           Date: <Date in yyyy-MM-dd format>
-                           Time: <Time in HH:mm format or "Unknown">
-                           Duration: <Duration in minutes or "Unknown">
-                        4. Date handling:
-                           - Use the current date as reference: $currentDate.
-                           - Convert relative dates based on the current date:
-                             - "today": Use current date.
-                             - "tomorrow": Add 1 day to current date.
-                             - "in X days" or "X days from now": Add X days to current date.
-                             - "next week": Add 7 days to current date.
-                             - "in X weeks": Add X * 7 days to current date.
-                             - Specific days (e.g., "this Friday", "next Monday"): Calculate based on current day of week.
-                           - If date is missing or unclear, use current date.
-                           - Always output date in yyyy-MM-dd format (e.g., "2025-05-25").
-                        5. Time handling:
-                           - Convert times to 24-hour format (HH:mm, e.g., "5pm" -> "17:00", "5am" -> "05:00").
-                           - Handle inputs like "5pm", "5:00 pm", "5", "evening", etc.:
-                             - Explicit times (e.g., "5pm", "5:00 pm"): Convert to HH:mm.
-                             - Partial times (e.g., "5"): Assume "05:00" if no AM/PM, or clarify based on context (e.g., "5 in evening" -> "17:00").
-                             - Vague times (e.g., "evening", "morning"): Use defaults (evening: "18:00", morning: "09:00").
-                           - If time is missing or unclear, output "Unknown".
-                        6. Duration handling:
-                           - Extract duration from phrases like "for X minutes", "for X hours", or "until Y" (e.g., "for 1 hour" -> "60", "for 30 minutes" -> "30").
-                           - Convert hours to minutes (e.g., "1 hour" -> "60").
-                           - If duration is missing or unclear, output "Unknown".
-                        7. Title handling:
-                           - If title is missing, use "Event" as default.
-                           - For names, use the exact name provided (e.g., "my boss" -> "Meeting with my boss").
-                           - Remove verbs like "set" or "schedule" from title (e.g., "Schedule a meeting with John" -> "Meeting with John").
-                        8. Do NOT include any other text, comments, or explanations.
-                        9. Examples:
-                           - Prompt: "Schedule a meeting with John tomorrow at 5pm for 1 hour"
-                             Title: Meeting with John
-                             Date: $tomorrowDate
-                             Time: 17:00
-                             Duration: 60
-                           - Prompt: "Set an event next week at 2:30pm"
-                             Title: Event
-                             Date: $nextWeekDate
-                             Time: 14:30
-                             Duration: Unknown
-                           - Prompt: "Meeting with Sarah this Friday at 9am for 45 minutes"
-                             Title: Meeting with Sarah
-                             Date: $thisFridayDate
-                             Time: 09:00
-                             Duration: 45
-                           - Prompt: "Set an event in 2 days in the evening for 2 hours"
-                             Title: Event
-                             Date: $inTwoDaysDate
-                             Time: 18:00
-                             Duration: 120
-                           - Prompt: "Schedule a meeting today"
-                             Title: Meeting
-                             Date: $currentDate
-                             Time: Unknown
-                             Duration: Unknown
-                    """.trimIndent()
+                            You are a Calendar Event Extractor. Follow these rules exactly:
+                            1. The User Prompt describes a calendar event (e.g., "Set a meeting with John tomorrow at 5pm for 1 hour").
+                            2. Extract the event details: title, date, time, and duration.
+                            3. Output MUST be in this format, with no additional text or explanations:
+                               Title: <Event Title>
+                               Date: <Date in yyyy-MM-dd format>
+                               Time: <Time in HH:mm format or "Unknown">
+                               Duration: <Duration in minutes or "Unknown">
+                            4. Date handling:
+                               - Use the current date as reference: $currentDate.
+                               - Convert relative dates based on the current date:
+                                 - "today": Use current date.
+                                 - "tomorrow": Add 1 day to current date.
+                                 - "in X days" or "X days from now": Add X days to current date.
+                                 - "next week": Add 7 days to current date.
+                                 - "in X weeks": Add X * 7 days to current date.
+                                 - Specific days (e.g., "this Friday", "next Monday"): Calculate based on current day of week.
+                               - If date is missing or unclear, use current date.
+                               - Always output date in yyyy-MM-dd format (e.g., "2025-05-25").
+                            5. Time handling:
+                               - Convert times to 24-hour format (HH:mm, e.g., "5pm" -> "17:00", "5am" -> "05:00").
+                               - Handle inputs like "5pm", "5:00 pm", "5", "evening", etc.:
+                                 - Explicit times (e.g., "5pm", "5:00 pm"): Convert to HH:mm.
+                                 - Partial times (e.g., "5"): Assume "05:00" if no AM/PM, or clarify based on context (e.g., "5 in evening" -> "17:00").
+                                 - Vague times (e.g., "evening", "morning"): Use defaults (evening: "18:00", morning: "09:00").
+                               - If time is missing or unclear, output "Unknown".
+                            6. Duration handling:
+                               - Extract duration from phrases like "for X minutes", "for X hours", or "until Y" (e.g., "for 1 hour" -> "60", "for 30 minutes" -> "30").
+                               - Convert hours to minutes (e.g., "1 hour" -> "60").
+                               - If duration is missing or unclear, output "Unknown".
+                            7. Title handling:
+                               - If title is missing, use "Event" as default.
+                               - For names, use the exact name provided (e.g., "my boss" -> "Meeting with my boss").
+                               - Remove verbs like "set" or "schedule" from title (e.g., "Schedule a meeting with John" -> "Meeting with John").
+                            8. Do NOT include any other text, comments, or explanations.
+                            9. Examples:
+                               - Prompt: "Schedule a meeting with John tomorrow at 5pm for 1 hour"
+                                 Title: Meeting with John
+                                 Date: $tomorrowDate
+                                 Time: 17:00
+                                 Duration: 60
+                               - Prompt: "Set an event next week at 2:30pm"
+                                 Title: Event
+                                 Date: $nextWeekDate
+                                 Time: 14:30
+                                 Duration: Unknown
+                               - Prompt: "Meeting with Sarah this Friday at 9am for 45 minutes"
+                                 Title: Meeting with Sarah
+                                 Date: $thisFridayDate
+                                 Time: 09:00
+                                 Duration: 45
+                               - Prompt: "Set an event in 2 days in the evening for 2 hours"
+                                 Title: Event
+                                 Date: $inTwoDaysDate
+                                 Time: 18:00
+                                 Duration: 120
+                               - Prompt: "Schedule a meeting today"
+                                 Title: Meeting
+                                 Date: $currentDate
+                                 Time: Unknown
+                                 Duration: Unknown
+                        """.trimIndent()
 
                         val calendarChatMessages = listOf(
                             "system" to calendarPrompt,
@@ -461,7 +501,10 @@ class MessageHandler {
                         )
                         val formattedCalendarPrompt =
                             formatChatTemplate(calendarChatMessages, addGenerationPrompt = true)
-                        Log.d("MessageHandler", "Formatted calendar prompt: $formattedCalendarPrompt")
+                        Log.d(
+                            "MessageHandler",
+                            "Formatted calendar prompt: $formattedCalendarPrompt"
+                        )
 
                         Toast.makeText(
                             params.context,
