@@ -162,27 +162,28 @@ class MainActivity : ComponentActivity() {
 
         // Use context.filesDir for storing downloaded models
         val modelsDir = File(filesDir, "models").apply { mkdirs() }
+
         val models = listOf(
+            Downloadable(
+                name = " Qwen 3-0.6B",
+                source = Uri.parse("https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf?download=true"),
+                destination = File(modelsDir, "Qwen3-0.6B-Q8_0 (1).gguf"),
+                size = 0.61f, // Changed from 610f to 0.61f to represent 610MB
+                iconResId = R.drawable.ic_qwen_icon
+            ),
+            Downloadable(
+                name = "Arcee-lite",
+                source = Uri.parse("https://huggingface.co/arcee-ai/arcee-lite-GGUF/resolve/main/arcee-lite-Q8_0.gguf?download=true"),
+                destination = File(modelsDir, "arcee-lite-Q8_0.gguf"),
+                size = 1.8f,
+                iconResId = R.drawable.ic_arcee_lite_icon
+            ),
             Downloadable(
                 name = "Orca Mini-3B",
                 source = Uri.parse("https://huggingface.co/Aryanne/Orca-Mini-3B-gguf/resolve/main/q4_0-orca-mini-3b.gguf?download=true"),
                 destination = File(modelsDir, "q4_0-orca-mini-3b.gguf"),
                 size = 1.92f,
                 iconResId = R.drawable.ic_orca_icon
-            ),
-            Downloadable(
-                name = "Gemma 3-4B",
-                source = Uri.parse("https://huggingface.co/google/gemma-3-4b/resolve/main/gemma-3-4b.q4_0.gguf?download=true"),
-                destination = File(modelsDir, "gemma-3-4b.q4_0.gguf"),
-                size = 2.32f,
-                iconResId = R.drawable.ic_gemma_icon
-            ),
-            Downloadable(
-                name = "Mistral-7B",
-                source = Uri.parse("https://huggingface.co/mistralai/Mixtral-8x7B-v0.1/resolve/main/mixtral-8x7b.q4_0.gguf?download=true"),
-                destination = File(modelsDir, "mixtral-8x7b.q4_0.gguf"),
-                size = 4.12f,
-                iconResId = R.drawable.ic_mistral_icon
             )
         )
 

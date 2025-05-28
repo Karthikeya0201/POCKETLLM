@@ -2,6 +2,8 @@ package com.example.llama
 
 import android.app.DownloadManager
 import android.content.SharedPreferences
+import android.database.Cursor
+import android.provider.CalendarContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -52,6 +54,9 @@ fun SettingsScreen(
     var isAssistantNameFocused by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
     var importState by remember { mutableStateOf<ImportState?>(null) }
+    var isLoadingCalendars by remember { mutableStateOf(false) }
+    val calendarList by viewModel.calendarList
+    val selectedCalendarId by viewModel.selectedCalendarId
     val loadedModel by remember(viewModel.modelPath.value, viewModel.isModelLoaded.value) {
         derivedStateOf {
             if (viewModel.isModelLoaded.value && viewModel.modelPath.value.isNotEmpty()) {
@@ -96,6 +101,62 @@ fun SettingsScreen(
         }
     )
 
+    // Load calendars into viewModel.calendarList
+    fun loadCalendars(context: android.content.Context, viewModel: MainViewModel) {
+        isLoadingCalendars = true
+        Log.d("SettingsScreen", "Starting to load calendars")
+        try {
+            viewModel.calendarList.value = mutableListOf()
+            val projection = arrayOf(
+                CalendarContract.Calendars._ID,
+                CalendarContract.Calendars.CALENDAR_DISPLAY_NAME
+            )
+            val selection = "${CalendarContract.Calendars.VISIBLE} = 1"
+
+            val cursor: Cursor? = context.contentResolver.query(
+                CalendarContract.Calendars.CONTENT_URI,
+                projection,
+                selection,
+                null,
+                null
+            )
+
+            val calendars = mutableListOf<Pair<Long, String>>()
+            cursor?.use {
+                while (it.moveToNext()) {
+                    val id = it.getLong(0)
+                    val name = it.getString(1) ?: "Unnamed Calendar"
+                    calendars.add(id to name)
+                }
+            }
+            viewModel.calendarList.value = calendars
+            // Set default selection if none exists
+            if (calendars.isNotEmpty() && viewModel.selectedCalendarId.value == null) {
+                viewModel.selectedCalendarId.value = calendars[0].first
+                Log.d("SettingsScreen", "Set default calendar ID: ${calendars[0].first}")
+            }
+            Log.d(
+                "SettingsScreen",
+                "Loaded ${calendars.size} calendars: ${calendars.joinToString { it.second }}"
+            )
+        } catch (e: Exception) {
+            Log.e("SettingsScreen", "Error loading calendars: ${e.stackTraceToString()}")
+            viewModel.calendarList.value = emptyList()
+        } finally {
+            isLoadingCalendars = false
+            Log.d(
+                "SettingsScreen",
+                "Finished loading calendars, isLoadingCalendars=$isLoadingCalendars"
+            )
+        }
+    }
+
+    // Load calendars on initial composition
+    LaunchedEffect(Unit) {
+        Log.d("SettingsScreen", "Initial load of calendars")
+        loadCalendars(context, viewModel)
+    }
+
     // Handle import completion
     LaunchedEffect(importState, viewModel.isLoadingModel.value, viewModel.importError.value) {
         importState?.let { state ->
@@ -124,6 +185,14 @@ fun SettingsScreen(
             viewModel.importError.value = ""
             Log.d("SettingsScreen", "Model dialog opened, reset showImportSuccess and importError")
         }
+    }
+
+    // Log calendarList changes for debugging
+    LaunchedEffect(calendarList) {
+        Log.d(
+            "SettingsScreen",
+            "calendarList updated: size=${calendarList.size}, content=${calendarList.joinToString { it.second }}"
+        )
     }
 
     NavHost(
@@ -160,7 +229,7 @@ fun SettingsScreen(
                             navigationIcon = {
                                 IconButton(onClick = { navController.popBackStack() }) {
                                     Icon(
-                                        Icons.Filled.ArrowBack,
+                                        imageVector = Icons.Filled.ArrowBack,
                                         contentDescription = "Back",
                                         tint = PurpleHeading
                                     )
@@ -178,7 +247,7 @@ fun SettingsScreen(
                         .fillMaxSize()
                         .padding(padding)
                         .padding(horizontal = 18.dp, vertical = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(32.dp)
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
                     // Your Name Field
                     OutlinedTextField(
@@ -192,7 +261,7 @@ fun SettingsScreen(
                             },
                         label = {
                             Text(
-                                "Your Name",
+                                text = "Your Name",
                                 color = PurplePrimary,
                                 modifier = if (isUserNameFocused || viewModel.userName.value.isNotEmpty()) {
                                     Modifier
@@ -228,7 +297,7 @@ fun SettingsScreen(
                             },
                         label = {
                             Text(
-                                "Assistant Name",
+                                text = "Assistant Name",
                                 color = PurplePrimary,
                                 modifier = if (isAssistantNameFocused || viewModel.assistantName.value.isNotEmpty()) {
                                     Modifier
@@ -251,6 +320,117 @@ fun SettingsScreen(
                         shape = RoundedCornerShape(5.dp),
                         singleLine = true
                     )
+
+                    // Calendar Selection Dropdown
+                    var expanded by remember { mutableStateOf(false) }
+                    Log.d(
+                        "SettingsScreen",
+                        "Rendering ExposedDropdownMenuBox, expanded=$expanded, calendarList.size=${calendarList.size}"
+                    )
+                    ExposedDropdownMenuBox(
+                        expanded = expanded,
+                        onExpandedChange = { newExpanded ->
+                            expanded = newExpanded
+                            if (newExpanded) {
+                                Log.d("SettingsScreen", "Dropdown opened, refreshing calendars")
+                                loadCalendars(context, viewModel)
+                            }
+                            Log.d("SettingsScreen", "Dropdown expanded state changed to: $expanded")
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = when {
+                                isLoadingCalendars -> "Loading calendars..."
+                                else -> calendarList.find { it.first == selectedCalendarId }?.second
+                                    ?: "Select Calendar"
+                            },
+                            onValueChange = {},
+                            readOnly = true,
+                            label = {
+                                Text(
+                                    text = "Calendar",
+                                    color = PurplePrimary,
+                                    modifier = if (expanded || selectedCalendarId != null) {
+                                        Modifier
+                                            .background(
+                                                color = Color(0xFFFEF7FF),
+                                                shape = RoundedCornerShape(4.dp)
+                                            )
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                            },
+                            trailingIcon = {
+                                if (isLoadingCalendars) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PurplePrimary,
+                                unfocusedBorderColor = Color(0xFFCAC4D0),
+                                focusedLabelColor = PurplePrimary,
+                                unfocusedLabelColor = PurplePrimary.copy(alpha = 0.6f)
+                            ),
+                            shape = RoundedCornerShape(5.dp),
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = {
+                                expanded = false
+                                Log.d("SettingsScreen", "Dropdown dismissed")
+                            },
+                            modifier = Modifier.background(Color.White)
+                        ) {
+                            if (isLoadingCalendars) {
+                                DropdownMenuItem(
+                                    text = { Text("Loading calendars...") },
+                                    onClick = { /* No action during loading */ },
+                                    enabled = false,
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Log.d("SettingsScreen", "Displayed 'Loading calendars...' in dropdown")
+                            } else if (calendarList.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("No calendars available") },
+                                    onClick = { expanded = false },
+                                    enabled = false,
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Log.d("SettingsScreen", "Displayed 'No calendars available' in dropdown")
+                            } else {
+                                calendarList.forEach { calendar ->
+                                    DropdownMenuItem(
+                                        text = { Text(calendar.second) },
+                                        onClick = {
+                                            viewModel.selectedCalendarId.value = calendar.first
+                                            expanded = false
+                                            Log.d(
+                                                "SettingsScreen",
+                                                "Selected calendar: ${calendar.second} (ID: ${calendar.first})"
+                                            )
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     // Model Loaded Card
                     Card(
@@ -372,7 +552,9 @@ fun SettingsScreen(
 
                     // Save Changes Button
                     Box(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Button(
@@ -380,16 +562,21 @@ fun SettingsScreen(
                                 viewModel.savePrefs(prefs)
                                 navController.popBackStack()
                             },
+                            enabled = loadedModel != null && viewModel.userName.value.isNotBlank() &&
+                                viewModel.assistantName.value.isNotBlank() && selectedCalendarId != null,
                             modifier = Modifier
                                 .width(180.dp)
                                 .height(40.dp),
                             shape = RoundedCornerShape(20.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = PurplePrimary
+                                containerColor = if (loadedModel != null && viewModel.userName.value.isNotBlank() &&
+                                    viewModel.assistantName.value.isNotBlank() && selectedCalendarId != null)
+                                    PurplePrimary else Color.LightGray,
+                                contentColor = Color.White
                             )
                         ) {
                             Text(
-                                "Save Changes",
+                                text = "Save Changes",
                                 color = Color.White,
                                 style = MaterialTheme.typography.titleMedium
                             )

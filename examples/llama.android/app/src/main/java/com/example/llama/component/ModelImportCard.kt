@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.example.llama.MainViewModel
 import com.example.llama.R
 import com.example.llama.model.Downloadable
@@ -501,23 +502,10 @@ fun ModelImportCard(
                                 )
                             }
                         }
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = PurplePrimary,
-                            modifier = Modifier.size(20.dp)
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_upload),
-                                contentDescription = "Upload",
-                                tint = Color.White,
-                                modifier = Modifier
-                                    .size(18.dp)
-                                    .padding(2.dp)
-                            )
-                        }
                     }
                 }
             }
+
             Spacer(modifier = Modifier.height(32.dp))
 
             Button(
@@ -657,8 +645,9 @@ private fun ModelOptionItem(
                 Surface(
                     shape = CircleShape,
                     color = when (model.name) {
-                        "Orca Mini-3B", "Mistral-7B" -> Color(0xFFD9BDFE)
-                        "Gemma 3-4B" -> Color(0xFF1D2E40)
+                        " Qwen 3-0.6B"-> Color.White
+                        "Orca Mini-3B" -> Color(0xFFD9BDFE)
+                        "Arcee-lite" -> Color.Black // Black for Arcee-lite
                         else -> Color.Transparent
                     },
                     modifier = Modifier.size(40.dp)
@@ -667,8 +656,13 @@ private fun ModelOptionItem(
                         painter = painterResource(id = model.iconResId),
                         contentDescription = model.name,
                         modifier = Modifier
+                            .padding(
+                                start = 4.dp,
+                                top = 4.dp,
+                                end = 4.dp,
+                                bottom = if (model.name == "Arcee-lite") 12.dp else 4.dp // Extra 4.dp at bottom for Arcee-lite
+                            )
                             .fillMaxSize()
-                            .padding(2.dp)
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
