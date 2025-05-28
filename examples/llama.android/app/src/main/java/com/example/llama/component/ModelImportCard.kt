@@ -645,9 +645,9 @@ private fun ModelOptionItem(
                 Surface(
                     shape = CircleShape,
                     color = when (model.name) {
-                        " Qwen 3-0.6B"-> Color.White
-                        "Orca Mini-3B" -> Color(0xFFD9BDFE)
+                        "Qwen 3-0.6B"-> Color.White
                         "Arcee-lite" -> Color.Black // Black for Arcee-lite
+                        "Orca Mini-3B" -> Color(0xFFD9BDFE)
                         else -> Color.Transparent
                     },
                     modifier = Modifier.size(40.dp)

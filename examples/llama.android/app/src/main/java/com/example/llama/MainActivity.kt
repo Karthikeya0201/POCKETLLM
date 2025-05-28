@@ -165,7 +165,7 @@ class MainActivity : ComponentActivity() {
 
         val models = listOf(
             Downloadable(
-                name = " Qwen 3-0.6B",
+                name = "Qwen 3-0.6B",
                 source = Uri.parse("https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf?download=true"),
                 destination = File(modelsDir, "Qwen3-0.6B-Q8_0 (1).gguf"),
                 size = 0.61f, // Changed from 610f to 0.61f to represent 610MB
