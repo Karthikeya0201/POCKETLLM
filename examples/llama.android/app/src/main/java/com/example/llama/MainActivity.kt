@@ -165,9 +165,9 @@ class MainActivity : ComponentActivity() {
 
         val models = listOf(
             Downloadable(
-                name = "Qwen 3-0.6B",
-                source = Uri.parse("https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf?download=true"),
-                destination = File(modelsDir, "Qwen3-0.6B-Q8_0 (1).gguf"),
+                name = "Qwen2.5-0.5B",
+                source = Uri.parse("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q8_0.gguf?download=true"),
+                destination = File(modelsDir, "Qwen3-0.6B-Q8_0.gguf"),
                 size = 0.61f, // Changed from 610f to 0.61f to represent 610MB
                 iconResId = R.drawable.ic_qwen_icon
             ),

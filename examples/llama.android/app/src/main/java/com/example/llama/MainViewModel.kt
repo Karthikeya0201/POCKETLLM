@@ -431,6 +431,12 @@ class MainViewModel(private val context: Context) : ViewModel() {
         Log.d("MainViewModel", "Added downloaded model: $modelName, total: ${_downloadedModels.value}")
     }
 
+    fun removeDownloadedModel(modelName: String) {
+        _downloadedModels.value = _downloadedModels.value - modelName
+        savePrefs(sharedPrefs)
+        Log.d("MainViewModel", "Removed downloaded model: $modelName, remaining: ${_downloadedModels.value}")
+    }
+
     fun startNewChat() {
         Log.d("MainViewModel", "Starting new chat")
         viewModelScope.launch {
