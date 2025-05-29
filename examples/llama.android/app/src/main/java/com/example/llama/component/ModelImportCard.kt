@@ -93,6 +93,60 @@ fun ModelImportCard(
         }
     }
 
+    // Count available models (downloaded + imported) and auto-select if there's only one
+    LaunchedEffect(displayedModel, viewModel.downloadedModels.value) {
+        // Count downloaded models that are complete and exist
+        val downloadedModelCount = modelOptions.count { model ->
+            val isDownloaded = viewModel.downloadedModels.value.contains(model.name)
+            if (isDownloaded) {
+                val file = File(
+                    context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
+                    getModelFileName(model.name)
+                )
+                file.exists()
+            } else {
+                false
+            }
+        }
+
+        // Check if there's an imported model
+        val importedModelCount = if (displayedModel != null) 1 else 0
+
+        // Total available models
+        val totalAvailableModels = downloadedModelCount + importedModelCount
+
+        // If there's exactly one model and none is selected, auto-select it
+        if (totalAvailableModels == 1 && selectedModel == null) {
+            if (displayedModel != null) {
+                // If the only model is the imported one
+                selectedModel = displayedModel
+                Log.d("ModelImportCard", "Auto-selected imported model: ${displayedModel!!.name}")
+            } else {
+                // If the only model is a downloaded one
+                val downloadedModel = modelOptions.first { model ->
+                    viewModel.downloadedModels.value.contains(model.name) &&
+                        File(
+                            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
+                            getModelFileName(model.name)
+                        ).exists()
+                }
+                val downloadedFile = File(
+                    context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
+                    getModelFileName(downloadedModel.name)
+                )
+                val modelInfo = ModelInfo(
+                    name = downloadedModel.name,
+                    file = downloadedFile,
+                    isDownloaded = true,
+                    iconResId = downloadedModel.iconResId,
+                    size = downloadedModel.size.toString()
+                )
+                selectedModel = modelInfo
+                Log.d("ModelImportCard", "Auto-selected downloaded model: ${downloadedModel.name}")
+            }
+        }
+    }
+
     // Handle file copying for imported models
     fun copySelectedFile() {
         if (shouldCopyFile) {
