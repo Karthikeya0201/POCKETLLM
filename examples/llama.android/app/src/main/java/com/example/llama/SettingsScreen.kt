@@ -214,15 +214,16 @@ fun SettingsScreen(
                         TopAppBar(
                             title = {
                                 Box(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    contentAlignment = Alignment.Center
+                                    modifier = Modifier.fillMaxWidth()
+                                        .absolutePadding(right = 50.dp),
                                 ) {
                                     Text(
                                         "Settings",
-                                        color = Black,
+                                        color = MaterialTheme.colorScheme.primary,
                                         style = MaterialTheme.typography.titleLarge,
                                         modifier = Modifier.fillMaxWidth(),
                                         textAlign = TextAlign.Center
+
                                     )
                                 }
                             },
