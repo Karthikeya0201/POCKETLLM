@@ -43,7 +43,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
     private val llama = LLamaAndroid.instance().apply {
         setContextSize(2048)
     }
-    private val messageHandler = MessageHandler() // Make it a class property
+    private val messageHandler = MessageHandler()
     var currentChatId: String? = null
 
     val selectedUri = mutableStateOf<Uri?>(null)

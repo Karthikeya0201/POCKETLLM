@@ -7,6 +7,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.example.llama.model.ChatHistory
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -16,7 +17,6 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 import android.llama.cpp.LLamaAndroid
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 data class MessageHandlerParams(
@@ -81,25 +81,25 @@ class MessageHandler {
         return pairs
     }
 
-    fun sendMessage(
+    suspend fun sendMessage(
         params: MessageHandlerParams,
         prompt: String,
         scope: kotlinx.coroutines.CoroutineScope
-    ) {
+    ) = coroutineScope {
         if (prompt.isBlank()) {
             Log.d("MessageHandler", "Empty prompt, skipping send")
-            return
+            return@coroutineScope
         }
 
+        Log.d("MessageHandler", "Sending prompt: $prompt")
         params.isGenerating.value = true
         params.messages.add("${params.userName}: $prompt")
         params.messages.add("${params.assistantName}: ")
 
         sendJob?.cancel()
         responseBuilder.clear()
-        sendJob = scope.launch {
+        sendJob = scope.launch {  // Reintroduce sendJob to allow cancellation
             try {
-                Log.d("MessageHandler", "Sending prompt: $prompt")
                 val wordCount = prompt.split("\\s+".toRegex()).size
                 Log.d("MessageHandler", "Prompt word count: $wordCount")
                 if (params.modelPath.isEmpty()) {
@@ -286,7 +286,7 @@ class MessageHandler {
                             1. The User Prompt will give a call request (e.g., "Call John").
                             2. Extract ONLY the name of the person to call.
                             3. Output MUST be in this 1-line format:
-                               Call <Name>
+                             Call <Name>
                             4. Do NOT include any other text.
                             5. Do NOT explain, greet, or comment. Output only the required format.
                             6. If no valid name is found, output an empty string.
@@ -516,6 +516,8 @@ class MessageHandler {
                 Log.d("MessageHandler", "Sending finished")
             }
         }
+        // Wait for the sendJob to complete or be canceled
+        sendJob?.join()
     }
 
     fun pause(params: MessageHandlerParams) {
