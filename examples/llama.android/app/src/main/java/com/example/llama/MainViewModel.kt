@@ -15,7 +15,6 @@ import com.example.llama.handler.MessageHandler
 import com.example.llama.handler.MessageHandlerParams
 import com.example.llama.model.ChatHistory
 import android.llama.cpp.LLamaAndroid
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -44,7 +43,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
     private val llama = LLamaAndroid.instance().apply {
         setContextSize(2048)
     }
-    private var sendJob: Job? = null
+    private val messageHandler = MessageHandler() // Make it a class property
     var currentChatId: String? = null
 
     val selectedUri = mutableStateOf<Uri?>(null)
@@ -80,7 +79,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
                         try {
                             isLoadingModel.value = true
                             Log.d("MainViewModel", "Attempting to reload model from path: ${modelPath.value}")
-                            // LLamaAndroid.load will handle unloading if necessary
                             llama.load(modelPath.value)
                             setModelLoaded(true)
                             Log.d("MainViewModel", "Model successfully reloaded: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
@@ -412,7 +410,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     Log.e("MainViewModel", "Failed to initialize LLaMA before loading: ${e.stackTraceToString()}")
                     return@launch
                 }
-                // Load the model; LLamaAndroid.load will handle unloading if necessary
                 try {
                     llama.load(modelPathStr)
                     modelPath.value = modelPathStr
@@ -456,7 +453,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
         viewModelScope.launch {
             messages.clear()
             currentChatId = null
-            sendJob?.cancel()
             isGenerating.value = false
             if (!_isModelLoaded.value && modelPath.value.isNotEmpty() && File(modelPath.value).exists()) {
                 try {
@@ -467,7 +463,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     } catch (e: Exception) {
                         Log.e("MainViewModel", "Failed to initialize LLaMA in startNewChat: ${e.stackTraceToString()}")
                     }
-                    llama.load(modelPath.value) // LLamaAndroid.load will handle unloading if necessary
+                    llama.load(modelPath.value)
                     setModelLoaded(true)
                     Log.d("MainViewModel", "Model loaded successfully in startNewChat: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
                 } catch (e: Exception) {
@@ -483,7 +479,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
     }
 
     fun send(prompt: String = message.value.trim()) {
-        val messageHandler = MessageHandler()
         val params = MessageHandlerParams(
             context = context,
             userName = userName.value,
@@ -505,13 +500,21 @@ class MainViewModel(private val context: Context) : ViewModel() {
     }
 
     fun pause() {
-        sendJob?.cancel()
-        isGenerating.value = false
-        messages.removeAll {
-            it.startsWith("${assistantName.value}:") &&
-                (it.length < 10 || it.endsWith("..."))
-        }
-        Log.d("MainViewModel", "Paused, cleaned partial responses")
+        val params = MessageHandlerParams(
+            context = context,
+            userName = userName.value,
+            assistantName = assistantName.value,
+            modelPath = modelPath.value,
+            messages = messages,
+            chatHistories = chatHistories,
+            isGenerating = isGenerating,
+            currentChatId = mutableStateOf(currentChatId),
+            selectedCalendarId = selectedCalendarId,
+            calendarList = calendarList,
+            chatsDir = chatsDir,
+            llama = llama
+        )
+        messageHandler.pause(params)
         viewModelScope.launch {
             saveCurrentChat()
         }

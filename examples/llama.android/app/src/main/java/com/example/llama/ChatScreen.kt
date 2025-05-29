@@ -10,12 +10,6 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -47,7 +41,6 @@ import com.example.llama.model.Downloadable
 import com.example.llama.ui.theme.PurplePrimary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
@@ -60,12 +53,10 @@ import android.content.Context
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 
-// Helper function to match ModelSelectionDialog
 private fun getModelFileName(modelName: String): String {
     return "${modelName.lowercase().replace(" ", "_")}.gguf"
 }
 
-// Updated sealed class to remove Initializing state
 sealed class ChatLoadingState {
     object Idle : ChatLoadingState()
     object Loading : ChatLoadingState()
@@ -100,10 +91,8 @@ fun ChatScreen(
         }
     }
 
-    // Track which message is long-pressed (null if none)
     var longPressedMessage by remember { mutableStateOf<String?>(null) }
 
-    // Determine the loaded model
     val loadedModel by remember(viewModel.modelPath.value, viewModel.isModelLoaded.value) {
         derivedStateOf {
             if (viewModel.isModelLoaded.value && viewModel.modelPath.value.isNotEmpty()) {
@@ -118,12 +107,9 @@ fun ChatScreen(
 
     LaunchedEffect(Unit) {
         Log.d("ChatScreen", "Initial state: modelPath=${viewModel.modelPath.value}, isModelLoaded=${viewModel.isModelLoaded.value}, selectedFileName=${viewModel.selectedFileName.value}")
-        viewModel.messages.clear()
-        viewModel.currentChatId = null
         chatLoadingState = ChatLoadingState.Idle
         Log.d("ChatScreen", "Started fresh chat with no welcome message")
 
-        // Check and reload model if necessary
         if (!viewModel.isModelLoaded.value && viewModel.modelPath.value.isNotEmpty()) {
             val modelFile = File(viewModel.modelPath.value)
             if (modelFile.exists()) {
@@ -598,7 +584,7 @@ fun ChatScreen(
                                                             Toast.LENGTH_SHORT
                                                         ).show()
                                                         Log.d("ChatScreen", "Copied user message to clipboard: $displayText")
-                                                        longPressedMessage = null // Hide icon after click
+                                                        longPressedMessage = null
                                                     },
                                                     modifier = Modifier
                                                         .size(24.dp)
@@ -643,18 +629,27 @@ fun ChatScreen(
                 }
             }
         }
+    }
 
-        if (showModelDialog) {
-            ModelSelectionDialog(
-                viewModel = viewModel,
-                modelOptions = modelOptions,
-                onDismiss = { showModelDialog = false },
-                onModelSelected = { path, isDownloaded ->
-                    viewModel.setModelPath(path)
-                    Log.d("ChatScreen", "Model selected: path=$path, isDownloaded=$isDownloaded")
-                    chatLoadingState = ChatLoadingState.Idle // Reset to allow chatting
+    if (showModelDialog) {
+        ModelSelectionDialog(
+            onDismiss = { showModelDialog = false },
+            onModelSelected = { modelPath ->
+                scope.launch {
+                    Log.d("ChatScreen", "Model selected: $modelPath")
+                    chatLoadingState = ChatLoadingState.Loading
+                    try {
+                        viewModel.setModelPath(modelPath)
+                        chatLoadingState = ChatLoadingState.Idle
+                        Log.d("ChatScreen", "Model loaded successfully: $modelPath")
+                    } catch (e: Exception) {
+                        Log.e("ChatScreen", "Failed to load model: ${e.stackTraceToString()}")
+                        chatLoadingState = ChatLoadingState.Error("Failed to load model: ${e.message}")
+                    }
                 }
-            )
-        }
+            },
+            modelOptions = modelOptions,
+            viewModel = viewModel,
+        )
     }
 }

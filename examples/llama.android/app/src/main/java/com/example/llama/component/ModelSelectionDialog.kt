@@ -21,7 +21,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.llama.MainViewModel
 import com.example.llama.R
@@ -38,7 +37,7 @@ fun ModelSelectionDialog(
     viewModel: MainViewModel,
     modelOptions: List<Downloadable>,
     onDismiss: () -> Unit,
-    onModelSelected: (String, Boolean) -> Unit
+    onModelSelected: (String) -> Unit
 ) {
     val context = LocalContext.current
     // List of models to display: (displayName, isDownloaded, fileName, path)
@@ -145,7 +144,7 @@ fun ModelSelectionDialog(
                                     .fillMaxWidth()
                                     .clickable {
                                         Log.d("ModelSelectionDialog", "Selecting model: $displayName, fileName=$fileName, path=$path, size=${File(path).length()} bytes")
-                                        onModelSelected(path, isDownloaded)
+                                        onModelSelected(path)
                                         onDismiss()
                                     },
                                 shape = RoundedCornerShape(8.dp),

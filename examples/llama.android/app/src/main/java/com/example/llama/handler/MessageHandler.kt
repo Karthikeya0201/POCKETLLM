@@ -17,6 +17,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import android.llama.cpp.LLamaAndroid
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 data class MessageHandlerParams(
     val context: Context,
@@ -34,8 +35,8 @@ data class MessageHandlerParams(
 )
 
 class MessageHandler {
-
     private var sendJob: Job? = null
+    private var responseBuilder = StringBuilder()
 
     private fun formatChatTemplate(
         messages: List<Pair<String, String>>,
@@ -95,6 +96,7 @@ class MessageHandler {
         params.messages.add("${params.assistantName}: ")
 
         sendJob?.cancel()
+        responseBuilder.clear()
         sendJob = scope.launch {
             try {
                 Log.d("MessageHandler", "Sending prompt: $prompt")
@@ -108,7 +110,6 @@ class MessageHandler {
                     return@launch
                 }
 
-                val responseBuilder = StringBuilder()
                 val questionWordsRegex = Regex(
                     """^(explain|what|why|where|how|when|who|which|describe|tell|define|clarify)\b""",
                     RegexOption.IGNORE_CASE
@@ -186,9 +187,12 @@ class MessageHandler {
                             formatChatTemplate(intentChatMessages, addGenerationPrompt = true)
                         Log.d("MessageHandler", "Formatted intent prompt: $formattedIntentPrompt")
 
+                        responseBuilder.clear()
                         params.llama.send(formattedIntentPrompt, formatChat = true)
                             .collect { partialResponse ->
-                                responseBuilder.append(partialResponse)
+                                if (isActive) {
+                                    responseBuilder.append(partialResponse)
+                                }
                             }
                         responseBuilder.toString().trim().lowercase()
                     }
@@ -245,7 +249,9 @@ class MessageHandler {
                         responseBuilder.clear()
                         params.llama.send(formattedSMSPrompt, formatChat = true)
                             .collect { partialResponse ->
-                                responseBuilder.append(partialResponse)
+                                if (isActive) {
+                                    responseBuilder.append(partialResponse)
+                                }
                             }
                         val smsDetails = responseBuilder.toString().trim()
                         Log.d("MessageHandler", "SMS details: $smsDetails")
@@ -303,7 +309,9 @@ class MessageHandler {
                         responseBuilder.clear()
                         params.llama.send(formattedCallPrompt, formatChat = true)
                             .collect { partialResponse ->
-                                responseBuilder.append(partialResponse)
+                                if (isActive) {
+                                    responseBuilder.append(partialResponse)
+                                }
                             }
                         val callPerson = responseBuilder.toString().trim()
 
@@ -425,7 +433,9 @@ class MessageHandler {
                         responseBuilder.clear()
                         params.llama.send(formattedCalendarPrompt, formatChat = true)
                             .collect { partialResponse ->
-                                responseBuilder.append(partialResponse)
+                                if (isActive) {
+                                    responseBuilder.append(partialResponse)
+                                }
                             }
                         val eventDetails = responseBuilder.toString().trim()
                         Log.d("MessageHandler", "Calendar event details: $eventDetails")
@@ -482,21 +492,20 @@ class MessageHandler {
                         responseBuilder.clear()
                         params.llama.send(formattedChatPrompt, formatChat = true)
                             .collect { partialResponse ->
-                                responseBuilder.append(partialResponse)
-                                val currentResponse = responseBuilder.toString().trim()
+                                if (isActive) {
+                                    responseBuilder.append(partialResponse)
+                                    val currentResponse = responseBuilder.toString().trim()
 
-                                if (currentResponse.isNotEmpty() &&
-                                    !currentResponse.endsWith("...") &&
-                                    currentResponse != params.messages.lastOrNull()
-                                        ?.removePrefix("${params.assistantName}: ")?.trim()
-                                ) {
-                                    val formattedResponse = currentResponse.replace("\n\n", "\n")
-                                    params.messages[params.messages.lastIndex] =
-                                        "${params.assistantName}: $formattedResponse"
-                                    Log.d(
-                                        "MessageHandler",
-                                        "Updated chat response: $formattedResponse"
-                                    )
+                                    if (currentResponse.isNotEmpty() &&
+                                        !currentResponse.endsWith("...") &&
+                                        currentResponse != params.messages.lastOrNull()
+                                            ?.removePrefix("${params.assistantName}: ")?.trim()
+                                    ) {
+                                        val formattedResponse = currentResponse.replace("\n\n", "\n")
+                                        params.messages[params.messages.lastIndex] =
+                                            "${params.assistantName}: $formattedResponse"
+                                        Log.d("MessageHandler", "Updated chat response: $formattedResponse")
+                                    }
                                 }
                             }
                     }
@@ -507,5 +516,16 @@ class MessageHandler {
                 Log.d("MessageHandler", "Sending finished")
             }
         }
+    }
+
+    fun pause(params: MessageHandlerParams) {
+        sendJob?.cancel()
+        responseBuilder.clear()
+        params.isGenerating.value = false
+        params.messages.removeAll {
+            it.startsWith("${params.assistantName}:") &&
+                (it.length < 10 || it.endsWith("...") || it == "${params.assistantName}: ")
+        }
+        Log.d("MessageHandler", "Paused, cleaned partial responses")
     }
 }
