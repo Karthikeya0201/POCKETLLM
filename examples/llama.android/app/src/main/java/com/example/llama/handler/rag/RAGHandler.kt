@@ -1,4 +1,4 @@
-package com.example.llama.handler
+package com.example.llama.handler.rag
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
@@ -13,7 +13,7 @@ import java.nio.ByteOrder
 import kotlin.math.sqrt
 
 class RAGHandler constructor(private val context: Context) {
-    private val embeddingProvider = SentenceEmbeddingProvider.getInstance(context)
+    private val embeddingProvider = SentenceEmbeddingProvider.Companion.getInstance(context)
     private val tag = "RAGHandler"
     private val embeddingCache = mutableMapOf<String, FloatArray>()
     private val embeddingSize = 384 // Matches all-MiniLM-L6-v2
@@ -83,10 +83,15 @@ class RAGHandler constructor(private val context: Context) {
                     }
                 }
                 if (embedding == null || embedding.size != embeddingSize || embedding.all { it == 0.0f }) {
-                    Log.w(tag, "Invalid embedding: null=${embedding == null}, size=${embedding?.size ?: 0}, allZero=${embedding?.all { it == 0.0f } ?: false}")
+                    Log.w(
+                        tag,
+                        "Invalid embedding: null=${embedding == null}, size=${embedding?.size ?: 0}, allZero=${embedding?.all { it == 0.0f } ?: false}")
                     FloatArray(embeddingSize) { 0f }
                 } else {
-                    Log.d(tag, "Extracted embedding (first 10): ${embedding.take(10).joinToString()}")
+                    Log.d(
+                        tag,
+                        "Extracted embedding (first 10): ${embedding.take(10).joinToString()}"
+                    )
                     embeddingCache[text] = embedding
                     embedding
                 }

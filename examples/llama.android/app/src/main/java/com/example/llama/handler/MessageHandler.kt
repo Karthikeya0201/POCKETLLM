@@ -1,22 +1,23 @@
 package com.example.llama.handler
 
 import android.content.Context
+import android.llama.cpp.LLamaAndroid
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import com.example.llama.handler.rag.RAGHandler
 import com.example.llama.model.ChatHistory
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-import android.llama.cpp.LLamaAndroid
-import kotlinx.coroutines.delay
 
 data class MessageHandlerParams(
     val context: Context,
@@ -66,9 +67,11 @@ class MessageHandler {
                 msg.startsWith("$userName: ") -> {
                     pairs.add("user" to msg.removePrefix("$userName: ").trim())
                 }
+
                 msg.startsWith("$assistantName: ") -> {
                     pairs.add("assistant" to msg.removePrefix("$assistantName: ").trim())
                 }
+
                 else -> {
                     pairs.add("assistant" to msg.trim())
                 }
@@ -95,7 +98,8 @@ class MessageHandler {
         val chatId = currentChatId.value ?: UUID.randomUUID().toString()
 
         val userPrefix = "$userName: "
-        val firstMsg = messages.firstOrNull { it.startsWith(userPrefix) } ?: messages.firstOrNull() ?: ""
+        val firstMsg =
+            messages.firstOrNull { it.startsWith(userPrefix) } ?: messages.firstOrNull() ?: ""
         val trimmedTitle = if (firstMsg.startsWith(userPrefix)) {
             firstMsg.removePrefix(userPrefix).trimStart()
         } else {
@@ -175,28 +179,29 @@ class MessageHandler {
                 }
 
                 val responseBuilder = StringBuilder()
+
                 val questionWordsRegex = Regex(
                     """^(explain|what|why|where|how|when|who|which|describe|tell|define|clarify)\b""",
                     RegexOption.IGNORE_CASE
                 )
 
                 val twoWordCallRegex = Regex(
-                    """^(call|phone|dial)\s+([a-zA-Z\s\-']+)$""",
+                    """^(call|phone|dial|contact)\s+([a-zA-Z\s\-']+)$""",
                     RegexOption.IGNORE_CASE
                 )
 
                 val smsRegex = Regex(
-                    """^(sms|text|message)\s+([a-zA-Z\s\-']+)\s*(.+)$""",
+                    """^(sms|text|message|ping)\s+([a-zA-Z\s\-']+)\s*(.+)$""",
                     RegexOption.IGNORE_CASE
                 )
 
                 val calendarKeywordsRegex = Regex(
-                    """\b(schedule|insert|plan|add)\b.*\b(event|task)\b.*\b(calendar)\b""",
+                    """\b(schedule|insert|plan|add)\b.*\b(event|task|meet)\b.*\b(calendar)\b""",
                     RegexOption.IGNORE_CASE
                 )
 
                 val ambiguousWordsRegex = Regex(
-                    """\b(call(ing)?|phone|dial(ing)?|event|meet(ing)?|schedul(e|ing)?|set|appointment|calendar|tomorrow|today|[0-9]+(am|pm)|sms|text|message)\b""",
+                    """\b(call(ing)?|phone|dial(ing)?|ring|buzz|contact|reach|talk|speak|event|meet(ing)?|schedul(e|ing)?|set|appointment|calendar|remind(er|ing)?|invite|plan|organize|sms|text|message|chat|reply|notify|ping|send|compose|today|tomorrow|soon|later|reschedul(e|ing)?)\b""",
                     RegexOption.IGNORE_CASE
                 )
 
@@ -222,7 +227,7 @@ class MessageHandler {
                             "Connecting Call Services",
                             Toast.LENGTH_SHORT
                         ).show()
-                        delay(1000)
+                        delay(500)
 
                         val intentCall = IntentCall(params.context)
                         val callSuccess = intentCall.initiateCall(nameOrNumber)
@@ -316,9 +321,9 @@ class MessageHandler {
                            - Prompt: "SMS +1234567890 Meeting at 5pm"
                              Contact: +1234567890
                              Message: Meeting at 5pm
-                           - Prompt: "Message Sarah"
+                           - Prompt: "Message Sarah asking Where are you"
                              Contact: Sarah
-                             Message:
+                             Message: Where are you
                         """.trimIndent()
 
                         val smsChatMessages = listOf(
@@ -509,7 +514,10 @@ class MessageHandler {
                         )
                         val formattedCalendarPrompt =
                             formatChatTemplate(calendarChatMessages, addGenerationPrompt = true)
-                        Log.d("MessageHandler", "Formatted calendar prompt: $formattedCalendarPrompt")
+                        Log.d(
+                            "MessageHandler",
+                            "Formatted calendar prompt: $formattedCalendarPrompt"
+                        )
 
                         Toast.makeText(
                             params.context,
@@ -542,7 +550,8 @@ class MessageHandler {
                             time = time,
                             duration = duration
                         )
-                        val success = calendarIntent.insertEvent(event, params.selectedCalendarId.value)
+                        val success =
+                            calendarIntent.insertEvent(event, params.selectedCalendarId.value)
 
                         params.messages[params.messages.lastIndex] = if (success) {
                             "${params.assistantName}: Scheduled $title${date?.let { " on $it" } ?: ""}${time?.let { " at $it" } ?: ""}${duration?.let { " for $it minutes" } ?: ""}"
@@ -565,12 +574,11 @@ class MessageHandler {
                         Log.d("MH", "Retrieved RAG context: $contextString")
 
                         val chatPrompt = """
-                            You are ${params.assistantName}, a helpful AI assistant to ${params.userName}. Follow these guidelines:
+                            You are ${params.assistantName}, a helpful AI assistant to user named ${params.userName}. Follow these guidelines:
                             - Be concise yet thorough
                             - Use clear, simple language
                             - Format responses neatly with proper spacing
                             - If unsure, say "I don't know" rather than guessing
-                            - For coding questions, provide complete examples
                             - Always maintain a helpful, professional tone
                             - Use the following context to inform your response, if relevant:
                             $contextString
@@ -604,7 +612,8 @@ class MessageHandler {
                                         ?.removePrefix("${params.assistantName}: ")?.trim()
                                 ) {
                                     withContext(Dispatchers.Main) {
-                                        val formattedResponse = currentResponse.replace("\n\n", "\n")
+                                        val formattedResponse =
+                                            currentResponse.replace("\n\n", "\n")
                                         params.messages[params.messages.lastIndex] =
                                             "${params.assistantName}: $formattedResponse"
                                     }
