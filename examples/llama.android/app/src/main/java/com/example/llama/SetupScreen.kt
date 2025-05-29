@@ -713,6 +713,9 @@ fun SetupScreen(
                         viewModel.setModelPath(modelPath)
                         importState = ImportState(modelPath, isDownloaded, displayName)
                     },
+                    onDismiss = {
+                        Log.d("SetupScreen", "ModelImportCard dismissed")
+                    },
                     modifier = Modifier
                         .fillMaxWidth(0.9f)
                         .wrapContentHeight()

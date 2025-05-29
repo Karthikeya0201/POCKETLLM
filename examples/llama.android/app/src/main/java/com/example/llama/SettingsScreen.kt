@@ -626,6 +626,9 @@ fun SettingsScreen(
                                     importState = ImportState(path, isDownloaded, displayName)
                                     Log.d("SettingsScreen", "onSave called: path=$path, displayName=$displayName")
                                 },
+                                onDismiss = {
+                                    Log.d("SettingsScreen", "ModelImportCard dismissed")
+                                },
                                 modifier = Modifier
                                     .fillMaxWidth(0.9f)
                                     .wrapContentHeight()

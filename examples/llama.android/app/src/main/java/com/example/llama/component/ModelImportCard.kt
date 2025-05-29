@@ -63,6 +63,7 @@ fun ModelImportCard(
     modelOptions: List<Downloadable>,
     onImportClick: () -> Unit,
     onSave: (String, Boolean, String) -> Unit,
+    onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -74,30 +75,21 @@ fun ModelImportCard(
     var selectedModel by remember { mutableStateOf<ModelInfo?>(null) }
     var shouldCopyFile by remember { mutableStateOf(false) }
 
-    // Store the currently imported (loaded) model
-    var loadedModel by remember { mutableStateOf<ModelInfo?>(null) }
+    // Local state to control what the UI displays (null = show "Import Model" button)
+    var displayedModel by remember { mutableStateOf<ModelInfo?>(null) }
 
-    // Initialize the loaded model for imported models only
+    // Reset displayedModel when the dialog opens
     LaunchedEffect(Unit) {
-        val currentModelPath = viewModel.modelPath.value
-        val currentFile = File(currentModelPath)
-        val currentDisplayName = viewModel.getModelDisplayName(currentFile.name)
+        displayedModel = null
+        Log.d("ModelImportCard", "Dialog opened, reset displayedModel to null")
+    }
 
-        // Set the loaded model only if it's an imported model
-        if (currentModelPath.isNotEmpty() && currentFile.exists() && viewModel.isModelLoaded.value) {
-            val isDownloaded = viewModel.downloadedModels.value.contains(currentDisplayName)
-            if (!isDownloaded) { // Only set for imported models
-                val downloadable = modelOptions.find { it.name == currentDisplayName }
-                loadedModel = ModelInfo(
-                    name = currentDisplayName,
-                    file = currentFile,
-                    isDownloaded = false,
-                    iconResId = R.drawable.ic_ai_chip_import_model,
-                    size = downloadable?.size?.toString()
-                )
-                selectedModel = loadedModel // Auto-select the loaded model
-            }
-            Log.d("ModelImportCard", "LoadedModel: ${loadedModel?.name}")
+    // Reset displayedModel and call onDismiss when the dialog is dismissed
+    DisposableEffect(Unit) {
+        onDispose {
+            displayedModel = null
+            onDismiss()
+            Log.d("ModelImportCard", "Dialog dismissed, reset displayedModel and called onDismiss")
         }
     }
 
@@ -112,13 +104,14 @@ fun ModelImportCard(
                 if (internalFile.exists()) {
                     Log.d("ModelImportCard", "File already exists: $rawFileName, using existing file")
                     val displayName = viewModel.getModelDisplayName(rawFileName)
-                    loadedModel = ModelInfo(
+                    val modelInfo = ModelInfo(
                         name = displayName,
                         file = internalFile,
                         isDownloaded = false,
                         iconResId = R.drawable.ic_ai_chip_import_model
                     )
-                    selectedModel = loadedModel
+                    displayedModel = modelInfo
+                    selectedModel = modelInfo
                     viewModel.showImportSuccess.value = true
                     shouldCopyFile = false
                     viewModel.selectedUri.value = null
@@ -153,13 +146,14 @@ fun ModelImportCard(
                         }
                         if (internalFile.exists()) {
                             val displayName = viewModel.getModelDisplayName(rawFileName)
-                            loadedModel = ModelInfo(
+                            val modelInfo = ModelInfo(
                                 name = displayName,
                                 file = internalFile,
                                 isDownloaded = false,
                                 iconResId = R.drawable.ic_ai_chip_import_model
                             )
-                            selectedModel = loadedModel
+                            displayedModel = modelInfo
+                            selectedModel = modelInfo
                             viewModel.showImportSuccess.value = true
                             shouldCopyFile = false
                             viewModel.selectedUri.value = null
@@ -201,7 +195,7 @@ fun ModelImportCard(
                 viewModel.selectedUri.value = null
                 viewModel.selectedFileName.value = null
                 shouldCopyFile = false
-                loadedModel = null // Reset loaded model on cancel
+                displayedModel = null // Reset displayed model on cancel
             }
         }
     }
@@ -224,13 +218,14 @@ fun ModelImportCard(
                     viewModel.selectedFileName.value = null
                     shouldCopyFile = false
                     val displayName = viewModel.getModelDisplayName(rawFileName)
-                    loadedModel = ModelInfo(
+                    val modelInfo = ModelInfo(
                         name = displayName,
                         file = internalFile,
                         isDownloaded = false,
                         iconResId = R.drawable.ic_ai_chip_import_model
                     )
-                    selectedModel = loadedModel
+                    displayedModel = modelInfo
+                    selectedModel = modelInfo
                     viewModel.showImportSuccess.value = true
                 }
             }
@@ -248,7 +243,6 @@ fun ModelImportCard(
 
     fun handleModelDownloadComplete(modelName: String, downloadedFile: File) {
         viewModel.addDownloadedModel(modelName)
-        // Do not update loadedModel for downloaded models
         Log.d("ModelImportCard", "Download complete: $modelName, Path=${downloadedFile.absolutePath}")
     }
 
@@ -288,7 +282,6 @@ fun ModelImportCard(
                 )
             }
 
-            // Display all models (downloaded or undownloaded)
             if (modelOptions.isNotEmpty()) {
                 modelOptions.forEachIndexed { index, model ->
                     ModelOptionItem(
@@ -307,13 +300,14 @@ fun ModelImportCard(
                                 context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
                                 getModelFileName(model.name)
                             )
-                            selectedModel = ModelInfo(
+                            val modelInfo = ModelInfo(
                                 name = model.name,
                                 file = downloadedFile,
                                 isDownloaded = true,
                                 iconResId = model.iconResId,
                                 size = model.size.toString()
                             )
+                            selectedModel = modelInfo
                         }
                     )
                     Spacer(modifier = Modifier.height(16.dp))
@@ -326,7 +320,6 @@ fun ModelImportCard(
                 )
             }
 
-            // Display the loaded (imported) model or the Import Model button
             if (isCopying && copyingFileName != null) {
                 Card(
                     modifier = Modifier
@@ -395,7 +388,7 @@ fun ModelImportCard(
                         }
                     }
                 }
-            } else if (loadedModel != null) {
+            } else if (displayedModel != null) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -420,9 +413,9 @@ fun ModelImportCard(
                             ) {
                                 Image(
                                     painter = painterResource(
-                                        id = loadedModel!!.iconResId ?: R.drawable.ic_ai_chip_import_model
+                                        id = displayedModel!!.iconResId ?: R.drawable.ic_ai_chip_import_model
                                     ),
-                                    contentDescription = loadedModel!!.name,
+                                    contentDescription = displayedModel!!.name,
                                     modifier = Modifier
                                         .padding(4.dp)
                                         .fillMaxSize()
@@ -436,17 +429,17 @@ fun ModelImportCard(
                                     color = Color(0xFF1C1B1F)
                                 )
                                 Text(
-                                    text = loadedModel!!.name,
+                                    text = displayedModel!!.name,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = Color(0xFF1C1B1F).copy(alpha = 0.6f)
                                 )
                             }
                         }
                         Checkbox(
-                            checked = selectedModel?.file?.absolutePath == loadedModel!!.file.absolutePath,
+                            checked = selectedModel?.file?.absolutePath == displayedModel!!.file.absolutePath,
                             onCheckedChange = { checked ->
                                 if (checked) {
-                                    selectedModel = loadedModel
+                                    selectedModel = displayedModel
                                 }
                             },
                             colors = CheckboxDefaults.colors(
@@ -561,31 +554,26 @@ private fun ModelOptionItem(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Compute the file location in Downloads directory
     val downloadedFile = File(
         context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
         getModelFileName(model.name)
     )
 
-    // Track download state locally
     var isDownloadComplete by remember { mutableStateOf(viewModel.downloadedModels.value.contains(model.name)) }
 
-    // Check if the file exists periodically
     LaunchedEffect(Unit) {
         while (true) {
             if (isDownloadComplete) {
                 if (!downloadedFile.exists()) {
-                    // File has been moved or deleted
                     viewModel.removeDownloadedModel(model.name)
                     isDownloadComplete = false
                     Log.d("ModelOptionItem", "File no longer exists: ${downloadedFile.absolutePath}, marking as not downloaded")
                 }
             }
-            delay(5000L) // Check every 5 seconds
+            delay(5000L)
         }
     }
 
-    // Sync with viewModel.downloadedModels
     LaunchedEffect(viewModel.downloadedModels.value) {
         isDownloadComplete = viewModel.downloadedModels.value.contains(model.name)
     }
@@ -594,7 +582,6 @@ private fun ModelOptionItem(
         scope.launch {
             try {
                 if (downloadedFileUri != null) {
-                    // File is already in Environment.DIRECTORY_DOWNLOADS, no need to copy
                     if (downloadedFile.exists()) {
                         Log.d("ModelOptionItem", "File downloaded to: ${downloadedFile.absolutePath}, Size=${downloadedFile.length()} bytes")
                         isDownloading = false
@@ -613,7 +600,6 @@ private fun ModelOptionItem(
                 downloadId = null
                 isDownloadComplete = false
                 viewModel.removeDownloadedModel(model.name)
-                // Clean up the file on failure
                 if (downloadedFile.exists()) {
                     val deleted = downloadedFile.delete()
                     Log.d("ModelOptionItem", "Deleted failed download file: ${downloadedFile.absolutePath}, Success=$deleted")
