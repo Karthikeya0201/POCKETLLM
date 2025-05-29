@@ -36,7 +36,7 @@ data class MessageHandlerParams(
 class MessageHandler {
 
     private var sendJob: Job? = null
-
+    private lateinit var ragHandler: RAGHandler
     private fun formatChatTemplate(
         messages: List<Pair<String, String>>,
         addGenerationPrompt: Boolean = false
@@ -66,11 +66,9 @@ class MessageHandler {
                 msg.startsWith("$userName: ") -> {
                     pairs.add("user" to msg.removePrefix("$userName: ").trim())
                 }
-
                 msg.startsWith("$assistantName: ") -> {
                     pairs.add("assistant" to msg.removePrefix("$assistantName: ").trim())
                 }
-
                 else -> {
                     pairs.add("assistant" to msg.trim())
                 }
@@ -97,8 +95,7 @@ class MessageHandler {
         val chatId = currentChatId.value ?: UUID.randomUUID().toString()
 
         val userPrefix = "$userName: "
-        val firstMsg =
-            messages.firstOrNull { it.startsWith(userPrefix) } ?: messages.firstOrNull() ?: ""
+        val firstMsg = messages.firstOrNull { it.startsWith(userPrefix) } ?: messages.firstOrNull() ?: ""
         val trimmedTitle = if (firstMsg.startsWith(userPrefix)) {
             firstMsg.removePrefix(userPrefix).trimStart()
         } else {
@@ -137,6 +134,13 @@ class MessageHandler {
         }
     }
 
+    fun close() {
+        if (this::ragHandler.isInitialized) {
+            ragHandler.close()
+            Log.d("MessageHandler", "RAGHandler resources closed")
+        }
+    }
+
     fun sendMessage(
         params: MessageHandlerParams,
         prompt: String,
@@ -145,6 +149,11 @@ class MessageHandler {
         if (prompt.isBlank()) {
             Log.d("MessageHandler", "Empty prompt, skipping send")
             return
+        }
+
+        // Initialize ragHandler if not already initialized
+        if (!this::ragHandler.isInitialized) {
+            ragHandler = RAGHandler(params.context)
         }
 
         params.isGenerating.value = true
@@ -204,7 +213,6 @@ class MessageHandler {
 
                     twoWordCallRegex.matches(prompt.trim()) -> {
                         Log.d("MessageHandler", "Two-word call pattern matched: $prompt")
-                        "call"
                         val match = twoWordCallRegex.find(prompt.trim())!!
                         val nameOrNumber = match.groupValues[2].trim()
 
@@ -501,10 +509,7 @@ class MessageHandler {
                         )
                         val formattedCalendarPrompt =
                             formatChatTemplate(calendarChatMessages, addGenerationPrompt = true)
-                        Log.d(
-                            "MessageHandler",
-                            "Formatted calendar prompt: $formattedCalendarPrompt"
-                        )
+                        Log.d("MessageHandler", "Formatted calendar prompt: $formattedCalendarPrompt")
 
                         Toast.makeText(
                             params.context,
@@ -537,8 +542,7 @@ class MessageHandler {
                             time = time,
                             duration = duration
                         )
-                        val success =
-                            calendarIntent.insertEvent(event, params.selectedCalendarId.value)
+                        val success = calendarIntent.insertEvent(event, params.selectedCalendarId.value)
 
                         params.messages[params.messages.lastIndex] = if (success) {
                             "${params.assistantName}: Scheduled $title${date?.let { " on $it" } ?: ""}${time?.let { " at $it" } ?: ""}${duration?.let { " for $it minutes" } ?: ""}"
@@ -547,16 +551,29 @@ class MessageHandler {
                         }
                     }
 
+
                     else -> {
+                        val contextItems = withContext(Dispatchers.Default) {
+                            ragHandler.retrieveRelevantContext(prompt, topK = 5)
+                        }
+                        val contextString = if (contextItems.isNotEmpty()) {
+                            contextItems.joinToString("\n") { "Context: $it" }
+                        } else {
+                            "No valid context found."
+                        }
+                        Log.d("MessageHandler", "Retrieved RAG context: $contextString")
+
                         val chatPrompt = """
-                        You are ${params.assistantName}, a helpful AI assistant to ${params.userName}. Follow these guidelines:
-                        - Be concise yet thorough
-                        - Use clear, simple language
-                        - Format responses neatly with proper spacing
-                        - If unsure, say "I don't know" rather than guessing
-                        - For coding questions, provide complete examples
-                        - Always maintain a helpful, professional tone
-                    """.trimIndent()
+                            You are ${params.assistantName}, a helpful AI assistant to ${params.userName}. Follow these guidelines:
+                            - Be concise yet thorough
+                            - Use clear, simple language
+                            - Format responses neatly with proper spacing
+                            - If unsure, say "I don't know" rather than guessing
+                            - For coding questions, provide complete examples
+                            - Always maintain a helpful, professional tone
+                            - Use the following context to inform your response, if relevant:
+                            $contextString
+                        """.trimIndent()
 
                         val chatMessages = messagesToPairs(
                             params.messages.dropLast(1),
@@ -582,19 +599,19 @@ class MessageHandler {
                                     currentResponse != params.messages.lastOrNull()
                                         ?.removePrefix("${params.assistantName}: ")?.trim()
                                 ) {
-                                    val formattedResponse = currentResponse.replace("\n\n", "\n")
-                                    params.messages[params.messages.lastIndex] =
-                                        "${params.assistantName}: $formattedResponse"
-                                    Log.d(
-                                        "MessageHandler",
-                                        "Updated chat response: $formattedResponse"
-                                    )
+                                    withContext(Dispatchers.Main) {
+                                        val formattedResponse = currentResponse.replace("\n\n", "\n")
+                                        params.messages[params.messages.lastIndex] =
+                                            "${params.assistantName}: $formattedResponse"
+                                    }
                                 }
                             }
                     }
                 }
             } finally {
-                params.isGenerating.value = false
+                withContext(Dispatchers.Main) {
+                    params.isGenerating.value = false
+                }
                 sendJob = null
                 Log.d("MessageHandler", "Sending finished, saving chat")
                 saveCurrentChat(
