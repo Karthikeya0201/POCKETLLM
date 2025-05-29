@@ -1,42 +1,40 @@
 package com.example.llama.component
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import kotlinx.coroutines.delay
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
+/**
+ * Composable for displaying a chat message bubble with text and code block support.
+ *
+ * @param text The message text, potentially containing code blocks (e.g., ```language\ncode\n```).
+ * @param isUser Whether the message is from the user (affects styling and alignment).
+ * @param modifier Modifier for the bubble.
+ * @param isLoading Whether the bubble is in a loading state (shows animated dots).
+ */
 @Composable
 fun MessageBubble(
     text: String,
@@ -55,13 +53,6 @@ fun MessageBubble(
         MaterialTheme.colorScheme.onSecondaryContainer
 
     val dotAnimatable = remember { Animatable(0f) }
-
-    // State to control the visibility of the "Copy" button for the bubble
-    var showCopyButton by remember { mutableStateOf(false) }
-
-    // Clipboard manager to copy text
-    val clipboardManager = LocalClipboardManager.current
-    val context = LocalContext.current
 
     LaunchedEffect(isLoading) {
         if (isLoading) {
@@ -82,39 +73,21 @@ fun MessageBubble(
         }
     }
 
-    // Auto-hide the bubble's "Copy" button after 3 seconds
-    LaunchedEffect(showCopyButton) {
-        if (showCopyButton) {
-            delay(3000)
-            showCopyButton = false
-        }
+    // State for message segments, updated dynamically
+    var messageSegments by remember { mutableStateOf(listOf<MessageSegment>()) }
+
+    // Reparse text whenever it changes to simulate streaming
+    LaunchedEffect(text) {
+        messageSegments = parseMessageSegments(text)
     }
 
-    // Parse text to detect code blocks
-    val (language, code, isCodeBlock) = parseCodeBlock(text)
-
     Box(modifier = modifier) {
-        // Main bubble with long press detection
+        // Main bubble
         Box(
             modifier = Modifier
                 .background(bubbleColor, RoundedCornerShape(16.dp))
                 .padding(14.dp)
                 .align(Alignment.Center)
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onLongPress = {
-                            if (!isLoading && !isCodeBlock) { // Only show bubble copy button for non-code content
-                                showCopyButton = true
-                            }
-                        },
-                        onTap = {
-                            // Hide the copy button if the user taps the bubble while it's visible
-                            if (showCopyButton) {
-                                showCopyButton = false
-                            }
-                        }
-                    )
-                }
         ) {
             if (isLoading) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -135,52 +108,40 @@ fun MessageBubble(
                         )
                     }
                 }
-            } else if (isCodeBlock) {
-                // Code block UI inspired by Gemini
-                CodeBlock(
-                    language = language ?: "Code",
-                    code = code ?: text,
-                    modifier = Modifier.fillMaxWidth()
-                )
             } else {
-                Text(
-                    text = text,
-                    color = textColor,
-                    fontSize = 16.sp,
-                    fontFamily = FontFamily.SansSerif,
-                    fontWeight = FontWeight.Normal
-                )
+                Column {
+                    messageSegments.forEach { segment ->
+                        when (segment) {
+                            is MessageSegment.TextSegment -> {
+                                Text(
+                                    text = segment.content,
+                                    color = textColor,
+                                    fontSize = 16.sp,
+                                    fontFamily = FontFamily.SansSerif,
+                                    fontWeight = FontWeight.Normal,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp),
+                                    softWrap = true,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Clip
+                                )
+                            }
+                            is MessageSegment.CodeSegment -> {
+                                CodeBlock(
+                                    language = segment.language ?: "Code",
+                                    code = segment.code,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp)
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        // Bubble's "Copy" button, shown above the bubble when long pressed (for non-code content)
-        if (showCopyButton && !isLoading && !isCodeBlock) {
-            Button(
-                onClick = {
-                    clipboardManager.setText(AnnotatedString(text))
-                    showCopyButton = false
-                    android.widget.Toast.makeText(context, "Text copied!", android.widget.Toast.LENGTH_SHORT).show()
-                },
-                modifier = Modifier
-                    .align(if (isUser) Alignment.TopEnd else Alignment.TopStart)
-                    .offset(y = (-40).dp)
-                    .shadow(4.dp, RoundedCornerShape(8.dp)),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    text = "Copy",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
-
-        // Tail Canvas - positioned relative to bubble edge
+        // Tail Canvas
         Canvas(
             modifier = Modifier
                 .align(if (isUser) Alignment.BottomEnd else Alignment.BottomStart)
@@ -208,20 +169,94 @@ fun MessageBubble(
     }
 }
 
-// Helper function to parse code blocks
-private fun parseCodeBlock(text: String): Triple<String?, String?, Boolean> {
-    val codeBlockRegex = Regex("```(\\w+)?\\n([\\s\\S]*?)```")
-    val match = codeBlockRegex.find(text)
-    return if (match != null) {
-        val language = match.groups[1]?.value
-        val code = match.groups[2]?.value?.trim()
-        Triple(language, code, true)
-    } else {
-        Triple(null, null, false)
-    }
+/**
+ * Sealed class representing segments of a message (text or code).
+ */
+sealed class MessageSegment {
+    data class TextSegment(val content: String) : MessageSegment()
+    data class CodeSegment(val language: String?, val code: String) : MessageSegment()
 }
 
-// Composable for rendering the code block in Gemini style
+/**
+ * Parses a message into text and code block segments, starting a code block as soon as an opening ``` is detected.
+ *
+ * @param text The input message text.
+ * @return List of [MessageSegment] (TextSegment or CodeSegment).
+ */
+private fun parseMessageSegments(text: String): List<MessageSegment> {
+    val segments = mutableListOf<MessageSegment>()
+    var currentIndex = 0
+    var isInCodeBlock = false
+    var codeBlockStartIndex = 0
+    var language: String? = null
+
+    while (currentIndex < text.length) {
+        if (!isInCodeBlock) {
+            // Look for opening ```
+            val openingIndex = text.indexOf("```", currentIndex)
+            if (openingIndex == -1) {
+                // No more code blocks, add remaining text
+                val remainingText = text.substring(currentIndex)
+                if (remainingText.isNotBlank()) {
+                    segments.add(MessageSegment.TextSegment(remainingText))
+                }
+                break
+            }
+
+            // Add text before the code block
+            if (openingIndex > currentIndex) {
+                val beforeText = text.substring(currentIndex, openingIndex)
+                if (beforeText.isNotBlank()) {
+                    segments.add(MessageSegment.TextSegment(beforeText))
+                }
+            }
+
+            // Process opening ```
+            currentIndex = openingIndex + 3 // Skip ```
+            // Extract language (until newline)
+            val newlineIndex = text.indexOf('\n', currentIndex).takeIf { it != -1 } ?: text.length
+            language = text.substring(currentIndex, newlineIndex).trim().takeIf { it.isNotBlank() }
+            currentIndex = newlineIndex + 1 // Skip newline
+            codeBlockStartIndex = currentIndex
+            isInCodeBlock = true
+        } else {
+            // Look for closing ```
+            val closingIndex = text.indexOf("```", currentIndex)
+            if (closingIndex == -1) {
+                // No closing ```, treat rest as code
+                val code = text.substring(codeBlockStartIndex)
+                if (code.isNotBlank()) {
+                    segments.add(MessageSegment.CodeSegment(language, code.trimEnd()))
+                }
+                break
+            }
+
+            // Add code up to closing ```
+            val code = text.substring(codeBlockStartIndex, closingIndex)
+            if (code.isNotBlank()) {
+                segments.add(MessageSegment.CodeSegment(language, code.trimEnd()))
+            }
+            currentIndex = closingIndex + 3 // Skip ```
+            isInCodeBlock = false
+            language = null
+        }
+    }
+
+    // Handle empty text
+    if (segments.isEmpty() && text.isNotBlank()) {
+        segments.add(MessageSegment.TextSegment(text))
+    }
+
+    return segments
+}
+
+/**
+ * Composable for rendering a code block with a language header and copy button.
+ *
+ * @param language The programming language (e.g., "kotlin", "python").
+ * @param code The code content.
+ * @param modifier Modifier for the code block.
+ */
 @Composable
 fun CodeBlock(
     language: String,
@@ -233,7 +268,7 @@ fun CodeBlock(
 
     Column(
         modifier = modifier
-            .background(Color.White, RoundedCornerShape(8.dp))
+            .background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp))
             .padding(8.dp)
     ) {
         // Header with language and copy button
@@ -281,9 +316,7 @@ fun CodeBlock(
                 }
             }
         }
-        // Spacer to create a gap between the header and the code content
         Spacer(modifier = Modifier.height(8.dp))
-        // Code content
         Text(
             text = code,
             style = TextStyle(
