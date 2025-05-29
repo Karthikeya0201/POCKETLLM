@@ -467,8 +467,8 @@ fun ModelImportCard(
                                 shape = CircleShape,
                                 color = if (loadedModel!!.isDownloaded) {
                                     when (loadedModel!!.name) {
-                                        "Qwen 3-0.6B" -> Color.White
-                                        "Arcee-lite" -> Color.Black
+                                        "Qwen 2.5-0.5B" -> Color.White
+                                        "Arcee-lite 1.78B" -> Color.Black
                                         "Orca Mini-3B" -> Color(0xFFD9BDFE)
                                         else -> Color(0xFFD9BDFE)
                                     }
@@ -487,7 +487,7 @@ fun ModelImportCard(
                                             start = 4.dp,
                                             top = 4.dp,
                                             end = 4.dp,
-                                            bottom = if (loadedModel!!.name == "Arcee-lite") 12.dp else 4.dp
+                                            bottom = if (loadedModel!!.name == "Arcee-lite 1.78B") 12.dp else 4.dp
                                         )
                                         .fillMaxSize()
                                 )
@@ -715,8 +715,8 @@ private fun ModelOptionItem(
                 Surface(
                     shape = CircleShape,
                     color = when (model.name) {
-                        "Qwen 3-0.6B" -> Color.White
-                        "Arcee-lite" -> Color.Black
+                        "Qwen 2.5-0.5B" -> Color.White
+                        "Arcee-lite 1.78B" -> Color.Black
                         "Orca Mini-3B" -> Color(0xFFD9BDFE)
                         else -> Color(0xFFD9BDFE)
                     },
@@ -730,7 +730,7 @@ private fun ModelOptionItem(
                                 start = 4.dp,
                                 top = 4.dp,
                                 end = 4.dp,
-                                bottom = if (model.name == "Arcee-lite") 12.dp else 4.dp
+                                bottom = if (model.name == "Arcee-lite 1.78B") 12.dp else 4.dp
                             )
                             .fillMaxSize()
                     )

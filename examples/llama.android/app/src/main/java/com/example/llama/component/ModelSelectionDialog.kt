@@ -41,20 +41,48 @@ fun ModelSelectionDialog(
     onModelSelected: (String, Boolean) -> Unit
 ) {
     val context = LocalContext.current
-    var availableModels by remember { mutableStateOf<List<Triple<String, Boolean, String>>>(emptyList()) }
+    // List of models to display: (displayName, isDownloaded, fileName, path)
+    var availableModels by remember { mutableStateOf<List<Quadruple<String, Boolean, String, String>>>(emptyList()) }
 
     LaunchedEffect(Unit) {
-        val filesDir = context.filesDir
-        val ggufFiles = filesDir.listFiles()?.filter { it.name.endsWith(".gguf", ignoreCase = true) }?.toList() ?: emptyList()
-        val modelList = ggufFiles.map { file ->
-            val modelName = file.name.removeSuffix(".gguf")
-            val isDownloaded = modelOptions.any {
-                getModelFileName(it.name) == file.name
-            }
-            val displayName = viewModel.getModelDisplayName(file.name)
-            Triple(displayName, isDownloaded, file.name)
+        // 1. Look for imported models in context.filesDir
+        val internalDir = context.filesDir
+        val importedFiles = internalDir.listFiles()
+            ?.filter { it.name.endsWith(".gguf", ignoreCase = true) }
+            ?.toList() ?: emptyList()
+
+        // 2. Look for downloaded models in context.getExternalFilesDir(null)/Download
+        val externalBaseDir = context.getExternalFilesDir(null) ?: context.filesDir // Fallback to filesDir if external storage is unavailable
+        val downloadDir = File(externalBaseDir, "Download")
+        if (!downloadDir.exists()) {
+            downloadDir.mkdirs() // Create the directory if it doesn't exist
+            Log.d("ModelSelectionDialog", "Created Download directory at: ${downloadDir.absolutePath}")
         }
+        val downloadedFiles = downloadDir.listFiles()
+            ?.filter { it.name.endsWith(".gguf", ignoreCase = true) }
+            ?.toList() ?: emptyList()
+
+        // 3. Combine the lists and remove duplicates based on file name
+        val allFiles = (importedFiles + downloadedFiles).distinctBy { it.name }
+
+        // 4. Build the list of models that are actually available
+        val modelList = allFiles.mapNotNull { file ->
+            val fileName = file.name
+            val displayName = viewModel.getModelDisplayName(fileName)
+            // Find the corresponding model in modelOptions to determine if it's a "downloaded" model
+            val modelOption = modelOptions.find { getModelFileName(it.name) == fileName }
+            // Check if the model is marked as downloaded in viewModel.downloadedModels
+            val isDownloaded = modelOption?.let { viewModel.downloadedModels.value.contains(it.name) } ?: false
+            // Since we're iterating over files that exist, we know the path is valid
+            val path = file.absolutePath
+
+            Quadruple(displayName, isDownloaded, fileName, path)
+        }.distinctBy { it.third } // Avoid duplicates based on fileName
+
         availableModels = modelList
+        Log.d("ModelSelectionDialog", "Available models (imported or downloaded): $availableModels")
+        Log.d("ModelSelectionDialog", "Scanned internal dir: ${internalDir.absolutePath}")
+        Log.d("ModelSelectionDialog", "Scanned download dir: ${downloadDir.absolutePath}")
     }
 
     Dialog(
@@ -109,23 +137,20 @@ fun ModelSelectionDialog(
                             .heightIn(max = 300.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(availableModels) { (displayName, isDownloaded, actualFileName) ->
+                        items(availableModels) { (displayName, isDownloaded, fileName, path) ->
+                            val isSelected = viewModel.selectedFileName.value == displayName
+
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        val file = File(context.filesDir, actualFileName)
-                                        if (file.exists()) {
-                                            Log.d("ModelSelectionDialog", "Selecting model: $displayName, fileName=$actualFileName, path=${file.absolutePath}, size=${file.length()} bytes")
-                                            onModelSelected(file.absolutePath, isDownloaded)
-                                            onDismiss()
-                                        } else {
-                                            Log.e("ModelSelectionDialog", "File does not exist: $actualFileName")
-                                        }
+                                        Log.d("ModelSelectionDialog", "Selecting model: $displayName, fileName=$fileName, path=$path, size=${File(path).length()} bytes")
+                                        onModelSelected(path, isDownloaded)
+                                        onDismiss()
                                     },
                                 shape = RoundedCornerShape(8.dp),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = if (viewModel.selectedFileName.value == displayName) PurplePrimary.copy(alpha = 0.1f) else Color.White
+                                    containerColor = if (isSelected) PurplePrimary.copy(alpha = 0.1f) else Color.White
                                 ),
                                 border = BorderStroke(1.dp, Color(0xFFD9BDFE))
                             ) {
@@ -144,9 +169,9 @@ fun ModelSelectionDialog(
                                             painter = painterResource(
                                                 id = if (isDownloaded) {
                                                     when (displayName) {
+                                                        "Qwen 2.5-0.5B" -> R.drawable.ic_qwen_icon
+                                                        "Arcee-lite 1.78B" -> R.drawable.ic_arcee_lite_icon
                                                         "Orca Mini-3B" -> R.drawable.ic_orca_icon
-                                                        "Gemma 3-4B" -> R.drawable.ic_gemma_icon
-                                                        "Mistral-7B" -> R.drawable.ic_mistral_icon
                                                         else -> R.drawable.ic_ai_chip
                                                     }
                                                 } else {
@@ -174,3 +199,11 @@ fun ModelSelectionDialog(
         }
     }
 }
+
+// Helper data class to hold model information
+data class Quadruple<A, B, C, D>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D
+)

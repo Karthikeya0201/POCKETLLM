@@ -24,6 +24,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
 import android.text.format.Formatter
 import android.util.Log
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.core.content.getSystemService
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -73,7 +77,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkAndRequestPermissions() {
-        // List of dangerous permissions that require runtime approval
         val dangerousPermissions = arrayOf(
             Manifest.permission.READ_EXTERNAL_STORAGE,
             Manifest.permission.WRITE_EXTERNAL_STORAGE,
@@ -86,7 +89,6 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.SEND_SMS,
         )
 
-        // Handle MANAGE_EXTERNAL_STORAGE for Android 11+ (API 30+)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             if (!Environment.isExternalStorageManager()) {
                 Log.d("MainActivity", "Android 11+: Requesting MANAGE_EXTERNAL_STORAGE")
@@ -96,10 +98,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Check and request dangerous permissions
         val permissionsToRequest = mutableListOf<String>()
         dangerousPermissions.forEach { permission ->
-            // Skip storage permissions on Android 11+ as MANAGE_EXTERNAL_STORAGE is used
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
                 (permission == Manifest.permission.READ_EXTERNAL_STORAGE ||
                     permission == Manifest.permission.WRITE_EXTERNAL_STORAGE)
@@ -123,7 +123,6 @@ class MainActivity : ComponentActivity() {
             Log.d("MainActivity", "All required permissions already granted")
         }
 
-        // Normal permissions (INTERNET, ACCESS_NETWORK_STATE) are granted at install time
         Log.d(
             "MainActivity",
             "Normal permissions (INTERNET, ACCESS_NETWORK_STATE) are granted at install time"
@@ -160,28 +159,28 @@ class MainActivity : ComponentActivity() {
         val total = Formatter.formatFileSize(this, availableMemory().totalMem)
         viewModel.log("Current memory: $free / $total")
 
-        // Use context.filesDir for storing downloaded models
-        val modelsDir = File(filesDir, "models").apply { mkdirs() }
+        val downloadDir = File(getExternalFilesDir(null), "Download").apply { mkdirs() }
+        val importedDir = filesDir // Imported models are stored directly in filesDir
 
         val models = listOf(
             Downloadable(
-                name = "Qwen2.5-0.5B",
+                name = "Qwen 2.5-0.5B",
                 source = Uri.parse("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q8_0.gguf?download=true"),
-                destination = File(modelsDir, "Qwen3-0.6B-Q8_0.gguf"),
-                size = 0.61f, // Changed from 610f to 0.61f to represent 610MB
+                destination = File(downloadDir, "qwen2.5-0.5b-instruct-q8_0.gguf"),
+                size = 0.61f, // 610MB
                 iconResId = R.drawable.ic_qwen_icon
             ),
             Downloadable(
-                name = "Arcee-lite",
+                name = "Arcee-lite 1.78B",
                 source = Uri.parse("https://huggingface.co/arcee-ai/arcee-lite-GGUF/resolve/main/arcee-lite-Q8_0.gguf?download=true"),
-                destination = File(modelsDir, "arcee-lite-Q8_0.gguf"),
+                destination = File(downloadDir, "arcee-lite-Q8_0.gguf"),
                 size = 1.8f,
                 iconResId = R.drawable.ic_arcee_lite_icon
             ),
             Downloadable(
                 name = "Orca Mini-3B",
-                source = Uri.parse("https://huggingface.co/Aryanne/Orca-Mini-3B-gguf/resolve/main/q4_0-orca-mini-3b.gguf?download=true"),
-                destination = File(modelsDir, "q4_0-orca-mini-3b.gguf"),
+                source = Uri.parse("https://huggingface.co/pankajmathur/orca_mini_v9_6_3B-Instruct-GGUF/resolve/main/orca_mini_v9_6_3B-Instruct.Q8_0.gguf?download=true"),
+                destination = File(downloadDir, "orca_mini_v9_6_3B-Instruct.Q8_0.gguf"),
                 size = 1.92f,
                 iconResId = R.drawable.ic_orca_icon
             )
@@ -237,22 +236,59 @@ fun AppNavigation(
     prefs: SharedPreferences,
     requestPermissions: (Array<String>) -> Unit
 ) {
+    val context = LocalContext.current
     val navController = rememberNavController()
-    val startDestination = when {
-        viewModel.isFirstLaunch.value -> {
-            Log.d("MainActivity", "Starting at setup screen due to first launch")
-            "setup"
-        }
+    var hasModels by remember { mutableStateOf<Boolean?>(null) } // Use null to indicate "not yet checked"
 
-        !viewModel.isModelLoaded.value -> {
-            Log.d("MainActivity", "Starting at setup screen due to model not loaded")
-            "setup"
-        }
+    // Perform a synchronous check for models to determine the initial start destination
+    val initialHasModels = remember {
+        val importedDir = context.filesDir
+        val importedFiles = importedDir.listFiles()
+            ?.filter { it.name.endsWith(".gguf", ignoreCase = true) }
+            ?.toList() ?: emptyList()
 
-        else -> {
-            Log.d("MainActivity", "Starting at chat screen")
-            "chat"
-        }
+        val downloadDir = File(context.getExternalFilesDir(null), "Download")
+        val downloadedFiles = downloadDir.listFiles()
+            ?.filter { it.name.endsWith(".gguf", ignoreCase = true) }
+            ?.toList() ?: emptyList()
+
+        val allFiles = (importedFiles + downloadedFiles).distinctBy { it.name }
+        val result = allFiles.isNotEmpty()
+
+        Log.d("AppNavigation", "Initial check - Imported models: ${importedFiles.map { it.absolutePath }}")
+        Log.d("AppNavigation", "Initial check - Downloaded models: ${downloadedFiles.map { it.absolutePath }}")
+        Log.d("AppNavigation", "Initial check - Has models: $result")
+
+        result
+    }
+
+    // Update hasModels asynchronously to handle runtime changes
+    LaunchedEffect(Unit) {
+        val importedDir = context.filesDir
+        val importedFiles = importedDir.listFiles()
+            ?.filter { it.name.endsWith(".gguf", ignoreCase = true) }
+            ?.toList() ?: emptyList()
+
+        val downloadDir = File(context.getExternalFilesDir(null), "Download")
+        val downloadedFiles = downloadDir.listFiles()
+            ?.filter { it.name.endsWith(".gguf", ignoreCase = true) }
+            ?.toList() ?: emptyList()
+
+        val allFiles = (importedFiles + downloadedFiles).distinctBy { it.name }
+        hasModels = allFiles.isNotEmpty()
+
+        Log.d("AppNavigation", "LaunchedEffect - Imported models: ${importedFiles.map { it.absolutePath }}")
+        Log.d("AppNavigation", "LaunchedEffect - Downloaded models: ${downloadedFiles.map { it.absolutePath }}")
+        Log.d("AppNavigation", "LaunchedEffect - Has models: $hasModels")
+    }
+
+    // Determine the start destination using the synchronous check
+    val startDestination = if (initialHasModels) {
+        Log.d("AppNavigation", "Models found initially, starting at chat screen")
+        "chat"
+    } else {
+        Log.d("AppNavigation", "No models found initially, starting at setup screen")
+        "setup"
     }
 
     NavHost(
@@ -260,6 +296,16 @@ fun AppNavigation(
         startDestination = startDestination
     ) {
         composable("setup") {
+            // Redirect to chat screen if models are found after starting on setup
+            LaunchedEffect(hasModels) {
+                if (hasModels == true) {
+                    Log.d("AppNavigation", "Models detected after starting on setup, navigating to chat")
+                    navController.navigate("chat") {
+                        popUpTo("setup") { inclusive = true }
+                    }
+                }
+            }
+
             SetupScreen(
                 navController = navController,
                 viewModel = viewModel,
@@ -270,22 +316,48 @@ fun AppNavigation(
             )
         }
         composable("chat") {
-            if (viewModel.isModelLoaded.value) {
-                ChatScreen(
-                    navController = navController,
-                    viewModel = viewModel,
-                    clipboardManager = clipboardManager,
-                    modelOptions = models,
-                    requestPermissions = requestPermissions
-                )
-            } else {
+            if (hasModels == true) {
                 LaunchedEffect(Unit) {
-                    Log.d(
-                        "MainActivity",
-                        "Model not loaded in chat route, navigating to setup screen"
+                    if (!viewModel.isModelLoaded.value && viewModel.modelPath.value.isEmpty()) {
+                        val allFiles = (context.filesDir.listFiles()
+                            ?.filter { it.name.endsWith(".gguf", ignoreCase = true) }
+                            ?.toList() ?: emptyList()) +
+                            (File(context.getExternalFilesDir(null), "Download").listFiles()
+                                ?.filter { it.name.endsWith(".gguf", ignoreCase = true) }
+                                ?.toList() ?: emptyList())
+                        val firstModel = allFiles.firstOrNull()
+                        if (firstModel != null) {
+                            Log.d("AppNavigation", "Loading first available model: ${firstModel.absolutePath}")
+                            viewModel.setModelPath(firstModel.absolutePath)
+                        }
+                    }
+                }
+
+                if (viewModel.isModelLoaded.value) {
+                    ChatScreen(
+                        navController = navController,
+                        viewModel = viewModel,
+                        clipboardManager = clipboardManager,
+                        modelOptions = models,
+                        requestPermissions = requestPermissions
                     )
-                    navController.navigate("setup") {
-                        popUpTo("chat") { inclusive = true }
+                } else {
+                    LaunchedEffect(viewModel.isModelLoaded.value) {
+                        if (!viewModel.isModelLoaded.value) {
+                            Log.d("AppNavigation", "Model failed to load in chat route, navigating to setup")
+                            navController.navigate("setup") {
+                                popUpTo("chat") { inclusive = true }
+                            }
+                        }
+                    }
+                }
+            } else {
+                LaunchedEffect(hasModels) {
+                    if (hasModels == false) {
+                        Log.d("AppNavigation", "No models available in chat route, navigating to setup screen")
+                        navController.navigate("setup") {
+                            popUpTo("chat") { inclusive = true }
+                        }
                     }
                 }
             }

@@ -89,7 +89,6 @@ class LLamaAndroid {
                     Log.d(tag, "bench(): $state")
                     bench_model(state.context, state.model, state.batch, pp, tg, pl, nr)
                 }
-
                 else -> throw IllegalStateException("No model loaded")
             }
         }
@@ -97,26 +96,36 @@ class LLamaAndroid {
 
     suspend fun load(pathToModel: String) {
         withContext(runLoop) {
-            when (threadLocalState.get()) {
-                is State.Idle -> {
-                    val model = load_model(pathToModel)
-                    if (model == 0L) throw IllegalStateException("load_model() failed")
-
-                    val context = new_context_with_size(model, contextSize)
-                    if (context == 0L) throw IllegalStateException("new_context() failed")
-
-                    val batch = new_batch(2048, 0, 1)
-                    if (batch == 0L) throw IllegalStateException("new_batch() failed")
-
-                    val sampler = new_sampler()
-                    if (sampler == 0L) throw IllegalStateException("new_sampler() failed")
-
-                    Log.i(tag, "Loaded model $pathToModel with context size $contextSize")
-                    threadLocalState.set(State.Loaded(model, context, batch, sampler))
+            // Check if a model is already loaded
+            if (isModelLoaded()) {
+                Log.d(tag, "A model is already loaded ($modelPath), unloading it first")
+                try {
+                    unload()
+                    Log.d(tag, "Successfully unloaded the existing model")
+                } catch (e: Exception) {
+                    Log.e(tag, "Error unloading existing model: ${e.stackTraceToString()}")
+                    throw IllegalStateException("Failed to unload existing model: ${e.message}")
                 }
-
-                else -> throw IllegalStateException("Model already loaded")
             }
+
+            // Verify state is Idle before proceeding
+            if (threadLocalState.get() !is State.Idle) {
+                Log.e(tag, "State inconsistency: State is not Idle after unloading")
+                throw IllegalStateException("State is not Idle after unloading")
+            }
+
+            // Load the new model
+            val model = load_model(pathToModel)
+            if (model == 0L) throw IllegalStateException("load_model failed")
+            val context = new_context_with_size(model, contextSize)
+            if (context == 0L) throw IllegalStateException("new_context failed")
+            val batch = new_batch(2048, 0, 1)
+            if (batch == 0L) throw IllegalStateException("new_batch failed")
+            val sampler = new_sampler()
+            if (sampler == 0L) throw IllegalStateException("new_sampler failed")
+            Log.i(tag, "Loaded model $pathToModel with context size $contextSize")
+            threadLocalState.set(State.Loaded(model, context, batch, sampler))
+            modelPath = pathToModel
         }
     }
 
@@ -149,21 +158,34 @@ class LLamaAndroid {
         }
     }.flowOn(runLoop)
 
-
     suspend fun unload() {
         withContext(runLoop) {
             when (val state = threadLocalState.get()) {
                 is State.Loaded -> {
-                    free_context(state.context)
-                    free_model(state.model)
-                    free_batch(state.batch)
-                    free_sampler(state.sampler)
-                    threadLocalState.set(State.Idle)
+                    try {
+                        free_context(state.context)
+                        free_model(state.model)
+                        free_batch(state.batch)
+                        free_sampler(state.sampler)
+                        Log.d(tag, "Successfully unloaded model: $modelPath")
+                    } catch (e: Exception) {
+                        Log.e(tag, "Error during unload: ${e.stackTraceToString()}")
+                    } finally {
+                        threadLocalState.set(State.Idle)
+                        modelPath = null
+                    }
                 }
-
-                else -> {}
+                else -> {
+                    Log.d(tag, "No model to unload, state is already Idle")
+                    threadLocalState.set(State.Idle)
+                    modelPath = null
+                }
             }
         }
+    }
+
+    fun isModelLoaded(): Boolean {
+        return threadLocalState.get() is State.Loaded
     }
 
     fun initialize(userName: String, assistantName: String) {

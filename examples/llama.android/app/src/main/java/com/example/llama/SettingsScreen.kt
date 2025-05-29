@@ -550,6 +550,15 @@ fun SettingsScreen(
                         }
                     }
 
+                    // Display import error if any
+                    viewModel.importError.value.takeIf { it.isNotEmpty() }?.let { error ->
+                        Text(
+                            text = error,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
+
                     // Save Changes Button
                     Box(
                         modifier = Modifier

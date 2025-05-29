@@ -80,18 +80,14 @@ class MainViewModel(private val context: Context) : ViewModel() {
                         try {
                             isLoadingModel.value = true
                             Log.d("MainViewModel", "Attempting to reload model from path: ${modelPath.value}")
-                            try {
-                                llama.unload()
-                                Log.d("MainViewModel", "Unloaded any existing model")
-                            } catch (e: Exception) {
-                                Log.e("MainViewModel", "Error unloading model: ${e.stackTraceToString()}")
-                            }
+                            // LLamaAndroid.load will handle unloading if necessary
                             llama.load(modelPath.value)
                             setModelLoaded(true)
                             Log.d("MainViewModel", "Model successfully reloaded: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
                         } catch (e: Exception) {
                             importError.value = "Failed to reload model on startup: ${e.message}"
                             setModelLoaded(false)
+                            resetModelStates()
                             Log.e("MainViewModel", "Model reload error: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
                         } finally {
                             isLoadingModel.value = false
@@ -99,9 +95,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     } else {
                         setModelLoaded(false)
                         importError.value = "Model file not found at ${modelPath.value}. Please select a new model."
-                        modelPath.value = ""
-                        selectedUri.value = null
-                        selectedFileName.value = null
+                        resetModelStates()
                         with(sharedPrefs.edit()) {
                             putString("modelPath", "")
                             putString("selectedFileName", "")
@@ -111,8 +105,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     }
                 } else {
                     setModelLoaded(false)
-                    selectedUri.value = null
-                    selectedFileName.value = null
+                    resetModelStates()
                     Log.d("MainViewModel", "No model path saved in preferences, isModelLoaded=${isModelLoaded.value}")
                 }
                 _isInitialized.value = true
@@ -130,6 +123,23 @@ class MainViewModel(private val context: Context) : ViewModel() {
         with(sharedPrefs.edit()) {
             putBoolean("isModelLoaded", loaded)
             apply()
+        }
+    }
+
+    private fun resetModelStates() {
+        modelPath.value = ""
+        selectedUri.value = null
+        selectedFileName.value = null
+        setModelLoaded(false)
+        viewModelScope.launch {
+            if (llama.isModelLoaded()) {
+                try {
+                    llama.unload()
+                    Log.d("MainViewModel", "Reset: Unloaded model from LLamaAndroid")
+                } catch (e: Exception) {
+                    Log.e("MainViewModel", "Reset: Error unloading model: ${e.stackTraceToString()}")
+                }
+            }
         }
     }
 
@@ -173,7 +183,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
         Log.d(
             "MainViewModel",
-            "Loaded preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}, downloadedModels=${_downloadedModels.value}, selectedCalendarId=${selectedCalendarId.value}"
+            "Loaded preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${isModelLoaded.value}, downloadedModels=${_downloadedModels.value}, selectedCalendarId=${selectedCalendarId.value}, isFirstLaunch=${_isFirstLaunch.value}"
         )
     }
 
@@ -187,11 +197,14 @@ class MainViewModel(private val context: Context) : ViewModel() {
             putString("downloadedModels", Json.encodeToString(_downloadedModels.value))
             putString("selectedFileName", selectedFileName.value)
             selectedCalendarId.value?.let { putLong("selectedCalendarId", it) }
+            if (prefs.contains("isFirstLaunch")) {
+                putBoolean("isFirstLaunch", _isFirstLaunch.value)
+            }
             apply()
         }
         Log.d(
             "MainViewModel",
-            "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${_isModelLoaded.value}, downloadedModels=${_downloadedModels.value}, selectedFileName=${selectedFileName.value}, selectedCalendarId=${selectedCalendarId.value}"
+            "Saved preferences: userName=${userName.value}, assistantName=${assistantName.value}, modelPath=${modelPath.value}, isModelLoaded=${_isModelLoaded.value}, downloadedModels=${_downloadedModels.value}, selectedFileName=${selectedFileName.value}, selectedCalendarId=${selectedCalendarId.value}, isFirstLaunch=${_isFirstLaunch.value}"
         )
         try {
             llama.initialize(userName.value, assistantName.value)
@@ -357,16 +370,16 @@ class MainViewModel(private val context: Context) : ViewModel() {
                             return@launch
                         }
                         val internalFile = File(context.filesDir, fileName)
-                        if (!internalFile.exists()) {
-                            context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                                FileOutputStream(internalFile).use { outputStream ->
-                                    inputStream.copyTo(outputStream)
-                                }
-                            }
-                            Log.d("MainViewModel", "Copied file from URI: $uri, new path: ${internalFile.absolutePath}")
-                        } else {
-                            Log.d("MainViewModel", "File already exists, skipping copy: ${internalFile.absolutePath}")
+                        if (internalFile.exists()) {
+                            internalFile.delete()
+                            Log.d("MainViewModel", "Deleted existing file to avoid conflict: ${internalFile.absolutePath}")
                         }
+                        context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                            FileOutputStream(internalFile).use { outputStream ->
+                                inputStream.copyTo(outputStream)
+                            }
+                        }
+                        Log.d("MainViewModel", "Copied file from URI: $uri, new path: ${internalFile.absolutePath}")
                         if (internalFile.exists()) {
                             modelPathStr = internalFile.absolutePath
                         } else {
@@ -383,8 +396,8 @@ class MainViewModel(private val context: Context) : ViewModel() {
                         return@launch
                     }
                 }
-                if (modelPath.value == modelPathStr && isModelLoaded.value) {
-                    Log.d("MainViewModel", "Model already loaded: $modelPathStr, skipping reload")
+                if (modelPath.value == modelPathStr && isModelLoaded.value && llama.isModelLoaded()) {
+                    Log.d("MainViewModel", "Model already loaded and matches: $modelPathStr, skipping reload")
                     isLoadingModel.value = false
                     return@launch
                 }
@@ -395,30 +408,31 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 } catch (e: Exception) {
                     importError.value = "Failed to initialize model library before loading: ${e.message}"
                     setModelLoaded(false)
+                    resetModelStates()
                     Log.e("MainViewModel", "Failed to initialize LLaMA before loading: ${e.stackTraceToString()}")
                     return@launch
                 }
-                if (_isModelLoaded.value) {
-                    Log.d("MainViewModel", "Unloading existing model before loading new one")
-                    try {
-                        llama.unload()
-                        Log.d("MainViewModel", "Unloaded existing model")
-                    } catch (e: Exception) {
-                        Log.e("MainViewModel", "Error unloading model: ${e.stackTraceToString()}")
-                    }
+                // Load the model; LLamaAndroid.load will handle unloading if necessary
+                try {
+                    llama.load(modelPathStr)
+                    modelPath.value = modelPathStr
+                    selectedFileName.value = getModelDisplayName(modelPathStr.substringAfterLast('/'))
+                    selectedUri.value = Uri.fromFile(File(modelPathStr))
+                    setModelLoaded(true)
+                    savePrefs(sharedPrefs)
+                    Log.d("MainViewModel", "Model loaded successfully: $modelPathStr, selectedFileName=${selectedFileName.value}, isModelLoaded=${isModelLoaded.value}")
+                } catch (e: Exception) {
+                    importError.value = "Failed to load new model: ${e.message}"
+                    setModelLoaded(false)
+                    resetModelStates()
+                    Log.e("MainViewModel", "Model load error: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
                 }
-                llama.load(modelPathStr)
-                modelPath.value = modelPathStr
-                selectedFileName.value = getModelDisplayName(modelPathStr.substringAfterLast('/'))
-                selectedUri.value = Uri.fromFile(File(modelPathStr))
-                setModelLoaded(true)
-                savePrefs(sharedPrefs)
-                Log.d("MainViewModel", "Model loaded successfully: $modelPathStr, selectedFileName=${selectedFileName.value}, isModelLoaded=${isModelLoaded.value}")
             } catch (e: Exception) {
-                importError.value = "Failed to load model: ${e.stackTraceToString()}"
+                importError.value = "Unexpected error: ${e.stackTraceToString()}"
                 setModelLoaded(false)
+                resetModelStates()
                 savePrefs(sharedPrefs)
-                Log.e("MainViewModel", "Model load error: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
+                Log.e("MainViewModel", "Unexpected error in setModelPath: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
             } finally {
                 isLoadingModel.value = false
             }
@@ -453,17 +467,12 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     } catch (e: Exception) {
                         Log.e("MainViewModel", "Failed to initialize LLaMA in startNewChat: ${e.stackTraceToString()}")
                     }
-                    try {
-                        llama.unload()
-                        Log.d("MainViewModel", "Unloaded any existing model")
-                    } catch (e: Exception) {
-                        Log.e("MainViewModel", "Error unloading model: ${e.stackTraceToString()}")
-                    }
-                    llama.load(modelPath.value)
+                    llama.load(modelPath.value) // LLamaAndroid.load will handle unloading if necessary
                     setModelLoaded(true)
                     Log.d("MainViewModel", "Model loaded successfully in startNewChat: ${modelPath.value}, isModelLoaded=${isModelLoaded.value}")
                 } catch (e: Exception) {
                     setModelLoaded(false)
+                    resetModelStates()
                     Log.e("MainViewModel", "Model load error in startNewChat: ${e.stackTraceToString()}, isModelLoaded=${isModelLoaded.value}")
                 }
             } else {
@@ -491,7 +500,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
         )
         viewModelScope.launch {
             messageHandler.sendMessage(params, prompt, viewModelScope)
-            saveCurrentChat() // Save chat after adding user and AI messages
+            saveCurrentChat()
         }
     }
 
@@ -504,7 +513,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
         Log.d("MainViewModel", "Paused, cleaned partial responses")
         viewModelScope.launch {
-            saveCurrentChat() // Save chat after pausing to capture any changes
+            saveCurrentChat()
         }
     }
 
@@ -520,8 +529,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
         super.onCleared()
         viewModelScope.launch {
             try {
-                saveCurrentChat() // Save current chat before unloading
-                llama.unload()
+                saveCurrentChat()
+                if (llama.isModelLoaded()) {
+                    llama.unload()
+                }
                 setModelLoaded(false)
                 Log.d("MainViewModel", "ViewModel cleared, saved chat and unloaded LLM")
             } catch (e: Exception) {

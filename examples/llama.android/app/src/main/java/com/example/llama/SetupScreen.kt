@@ -14,8 +14,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -230,18 +232,18 @@ fun SetupScreen(
         }
     }
 
+    // Use a scrollable Column to ensure all content is visible
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 100.dp, start = 18.dp, end = 18.dp),
-        verticalArrangement = Arrangement.Top,
-        horizontalAlignment = Alignment.Start
+            .padding(horizontal = 18.dp)
+            .verticalScroll(rememberScrollState()), // Enable scrolling
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
         Column(
             horizontalAlignment = Alignment.Start,
             modifier = Modifier
-                .padding(bottom = 16.dp)
-                .fillMaxWidth()
+                .padding(top = 60.dp) // Reduced top padding to save space
         ) {
             val customFont = FontFamily(Font(R.font.roboto_serif, FontWeight.Normal))
             Text(
@@ -263,116 +265,23 @@ fun SetupScreen(
                 ),
                 textAlign = TextAlign.Start
             )
-        }
 
-        Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp)) // Reduced spacing
 
-        OutlinedTextField(
-            value = viewModel.userName.value,
-            onValueChange = { viewModel.userName.value = it },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp)
-                .onFocusChanged { focusState ->
-                    isUserNameFocused = focusState.isFocused
-                },
-            label = {
-                Text(
-                    "Your Name",
-                    color = Color(0xFF6750A4),
-                    modifier = if (isUserNameFocused || viewModel.userName.value.isNotEmpty()) {
-                        Modifier
-                            .background(
-                                color = Color(0xFFFEF7FF),
-                                shape = RoundedCornerShape(4.dp)
-                            )
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    } else {
-                        Modifier
-                    }
-                )
-            },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color(0xFF6750A4),
-                unfocusedBorderColor = Color(0xFFCAC4D0),
-                focusedLabelColor = Color(0xFF6750A4),
-                unfocusedLabelColor = Color(0xFF6750A4).copy(alpha = 0.6f)
-            ),
-            shape = RoundedCornerShape(5.dp),
-            singleLine = true
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        OutlinedTextField(
-            value = viewModel.assistantName.value,
-            onValueChange = { viewModel.assistantName.value = it },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp)
-                .onFocusChanged { focusState ->
-                    isAssistantNameFocused = focusState.isFocused
-                },
-            label = {
-                Text(
-                    "Assistant Name",
-                    color = Color(0xFF6750A4),
-                    modifier = if (isAssistantNameFocused || viewModel.assistantName.value.isNotEmpty()) {
-                        Modifier
-                            .background(
-                                color = Color(0xFFFEF7FF),
-                                shape = RoundedCornerShape(4.dp)
-                            )
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    } else {
-                        Modifier
-                    }
-                )
-            },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color(0xFF6750A4),
-                unfocusedBorderColor = Color(0xFFCAC4D0),
-                focusedLabelColor = Color(0xFF6750A4),
-                unfocusedLabelColor = Color(0xFF6750A4).copy(alpha = 0.6f)
-            ),
-            shape = RoundedCornerShape(5.dp),
-            singleLine = true
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        var expanded by remember { mutableStateOf(false) }
-        Log.d(
-            "SetupScreen",
-            "Rendering ExposedDropdownMenuBox, expanded=$expanded, calendarList.size=${calendarList.size}"
-        )
-        ExposedDropdownMenuBox(
-            expanded = expanded,
-            onExpandedChange = { newExpanded ->
-                expanded = newExpanded
-                if (newExpanded && hasCalendarPermission(context)) {
-                    Log.d("SetupScreen", "Dropdown opened, refreshing calendars")
-                    loadCalendars(context, viewModel)
-                }
-                Log.d("SetupScreen", "Dropdown expanded state changed to: $expanded")
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp)
-        ) {
             OutlinedTextField(
-                value = when {
-                    isLoadingCalendars -> "Loading calendars..."
-                    else -> calendarList.find { it.first == selectedCalendarId }?.second
-                        ?: "Select Calendar"
-                },
-                onValueChange = {},
-                readOnly = true,
+                value = viewModel.userName.value,
+                onValueChange = { viewModel.userName.value = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
+                    .onFocusChanged { focusState ->
+                        isUserNameFocused = focusState.isFocused
+                    },
                 label = {
                     Text(
-                        "Calendar",
+                        "Your Name",
                         color = Color(0xFF6750A4),
-                        modifier = if (expanded || selectedCalendarId != null) {
+                        modifier = if (isUserNameFocused || viewModel.userName.value.isNotEmpty()) {
                             Modifier
                                 .background(
                                     color = Color(0xFFFEF7FF),
@@ -384,15 +293,42 @@ fun SetupScreen(
                         }
                     )
                 },
-                trailingIcon = {
-                    if (isLoadingCalendars) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
-                    }
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF6750A4),
+                    unfocusedBorderColor = Color(0xFFCAC4D0),
+                    focusedLabelColor = Color(0xFF6750A4),
+                    unfocusedLabelColor = Color(0xFF6750A4).copy(alpha = 0.6f)
+                ),
+                shape = RoundedCornerShape(5.dp),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(16.dp)) // Reduced spacing
+
+            OutlinedTextField(
+                value = viewModel.assistantName.value,
+                onValueChange = { viewModel.assistantName.value = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
+                    .onFocusChanged { focusState ->
+                        isAssistantNameFocused = focusState.isFocused
+                    },
+                label = {
+                    Text(
+                        "Assistant Name",
+                        color = Color(0xFF6750A4),
+                        modifier = if (isAssistantNameFocused || viewModel.assistantName.value.isNotEmpty()) {
+                            Modifier
+                                .background(
+                                    color = Color(0xFFFEF7FF),
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        } else {
+                            Modifier
+                        }
+                    )
                 },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFF6750A4),
@@ -401,273 +337,293 @@ fun SetupScreen(
                     unfocusedLabelColor = Color(0xFF6750A4).copy(alpha = 0.6f)
                 ),
                 shape = RoundedCornerShape(5.dp),
-                modifier = Modifier
-                    .menuAnchor()
-                    .fillMaxWidth()
+                singleLine = true
             )
-            ExposedDropdownMenu(
+
+            Spacer(modifier = Modifier.height(16.dp)) // Reduced spacing
+
+            var expanded by remember { mutableStateOf(false) }
+            Log.d(
+                "SetupScreen",
+                "Rendering ExposedDropdownMenuBox, expanded=$expanded, calendarList.size=${calendarList.size}"
+            )
+            ExposedDropdownMenuBox(
                 expanded = expanded,
-                onDismissRequest = {
-                    expanded = false
-                    Log.d("SetupScreen", "Dropdown dismissed")
+                onExpandedChange = { newExpanded ->
+                    expanded = newExpanded
+                    if (newExpanded && hasCalendarPermission(context)) {
+                        Log.d("SetupScreen", "Dropdown opened, refreshing calendars")
+                        loadCalendars(context, viewModel)
+                    }
+                    Log.d("SetupScreen", "Dropdown expanded state changed to: $expanded")
                 },
-                modifier = Modifier.background(Color.White)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
             ) {
-                if (isLoadingCalendars) {
-                    DropdownMenuItem(
-                        text = { Text("Loading calendars...") },
-                        onClick = { /* No action during loading */ },
-                        enabled = false,
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Log.d("SetupScreen", "Displayed 'Loading calendars...' in dropdown")
-                } else if (calendarList.isEmpty()) {
-                    DropdownMenuItem(
-                        text = { Text("No calendars available") },
-                        onClick = { expanded = false },
-                        enabled = false,
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Log.d("SetupScreen", "Displayed 'No calendars available' in dropdown")
-                } else {
-                    calendarList.forEach { calendar: Pair<Long, String> ->
+                OutlinedTextField(
+                    value = when {
+                        isLoadingCalendars -> "Loading calendars..."
+                        else -> calendarList.find { it.first == selectedCalendarId }?.second
+                            ?: "Select Calendar"
+                    },
+                    onValueChange = {},
+                    readOnly = true,
+                    label = {
+                        Text(
+                            "Calendar",
+                            color = Color(0xFF6750A4),
+                            modifier = if (expanded || selectedCalendarId != null) {
+                                Modifier
+                                    .background(
+                                        color = Color(0xFFFEF7FF),
+                                        shape = RoundedCornerShape(4.dp)
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            } else {
+                                Modifier
+                            }
+                        )
+                    },
+                    trailingIcon = {
+                        if (isLoadingCalendars) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                        }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF6750A4),
+                        unfocusedBorderColor = Color(0xFFCAC4D0),
+                        focusedLabelColor = Color(0xFF6750A4),
+                        unfocusedLabelColor = Color(0xFF6750A4).copy(alpha = 0.6f)
+                    ),
+                    shape = RoundedCornerShape(5.dp),
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = {
+                        expanded = false
+                        Log.d("SetupScreen", "Dropdown dismissed")
+                    },
+                    modifier = Modifier.background(Color.White)
+                ) {
+                    if (isLoadingCalendars) {
                         DropdownMenuItem(
-                            text = { Text(calendar.second) },
-                            onClick = {
-                                viewModel.selectedCalendarId.value = calendar.first
-                                expanded = false
-                                Log.d(
-                                    "SetupScreen",
-                                    "Selected calendar: ${calendar.second} (ID: ${calendar.first})"
-                                )
-                            },
+                            text = { Text("Loading calendars...") },
+                            onClick = { /* No action during loading */ },
+                            enabled = false,
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                             modifier = Modifier.fillMaxWidth()
                         )
+                        Log.d("SetupScreen", "Displayed 'Loading calendars...' in dropdown")
+                    } else if (calendarList.isEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("No calendars available") },
+                            onClick = { expanded = false },
+                            enabled = false,
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Log.d("SetupScreen", "Displayed 'No calendars available' in dropdown")
+                    } else {
+                        calendarList.forEach { calendar: Pair<Long, String> ->
+                            DropdownMenuItem(
+                                text = { Text(calendar.second) },
+                                onClick = {
+                                    viewModel.selectedCalendarId.value = calendar.first
+                                    expanded = false
+                                    Log.d(
+                                        "SetupScreen",
+                                        "Selected calendar: ${calendar.second} (ID: ${calendar.first})"
+                                    )
+                                },
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        if (calendarPermissionDenied) {
-            Spacer(modifier = Modifier.height(16.dp))
-            Row(
+            if (calendarPermissionDenied) {
+                Spacer(modifier = Modifier.height(8.dp)) // Reduced spacing
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Calendar permission denied. Please grant permissions.",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(
+                        onClick = {
+                            calendarPermissionLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.READ_CALENDAR,
+                                    Manifest.permission.WRITE_CALENDAR
+                                )
+                            )
+                            Log.d("SetupScreen", "Retry permissions clicked")
+                        }
+                    ) {
+                        Text("Retry")
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp)) // Reduced spacing
+
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 4.dp)
+                    .height(72.dp)
+                    .clickable {
+                        if (!showModelDialog) {
+                            pendingDialogOpen = true
+                            viewModel.importError.value = ""
+                            Log.d("SetupScreen", "Model card clicked, opening dialog")
+                        }
+                    },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFD9BDFE))
             ) {
-                Text(
-                    text = "Calendar permission denied. Please grant permissions.",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.weight(1f)
-                )
-                TextButton(
-                    onClick = {
-                        calendarPermissionLauncher.launch(
-                            arrayOf(
-                                Manifest.permission.READ_CALENDAR,
-                                Manifest.permission.WRITE_CALENDAR
-                            )
-                        )
-                        Log.d("SetupScreen", "Retry permissions clicked")
-                    }
-                ) {
-                    Text("Retry")
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp)
-                .height(72.dp)
-                .clickable {
-                    if (!showModelDialog) {
-                        pendingDialogOpen = true
-                        viewModel.importError.value = ""
-                        Log.d("SetupScreen", "Model card clicked, opening dialog")
-                    }
-                },
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            border = BorderStroke(1.dp, Color(0xFFD9BDFE))
-        ) {
-            if (loadedModel != null) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFFD9BDFE),
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            if (loadedModel!!.second) {
-                                Image(
-                                    painter = painterResource(
-                                        id = when (loadedModel!!.first) {
-                                            "Orca Mini-3B" -> R.drawable.ic_orca_icon
-                                            "Qwen 3-0.6B" -> R.drawable.ic_qwen_icon
-                                            "Arcee-lite" -> R.drawable.ic_arcee_lite_icon
-                                            else -> R.drawable.ic_ai_chip_import_model
-                                        }
-                                    ),
-                                    contentDescription = "Model Icon",
-                                    modifier = Modifier
-                                        .padding(8.dp)
-                                        .fillMaxSize()
+                if (loadedModel != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFD9BDFE),
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                if (loadedModel!!.second) {
+                                    Image(
+                                        painter = painterResource(
+                                            id = when (loadedModel!!.first) {
+                                                "Orca Mini-3B" -> R.drawable.ic_orca_icon
+                                                "Qwen 3-0.6B" -> R.drawable.ic_qwen_icon
+                                                "Arcee-lite" -> R.drawable.ic_arcee_lite_icon
+                                                else -> R.drawable.ic_ai_chip_import_model
+                                            }
+                                        ),
+                                        contentDescription = "Model Icon",
+                                        modifier = Modifier
+                                            .padding(8.dp)
+                                            .fillMaxSize()
+                                    )
+                                } else {
+                                    Image(
+                                        painter = painterResource(id = R.drawable.ic_ai_chip_import_model),
+                                        contentDescription = "AI Chip",
+                                        modifier = Modifier
+                                            .padding(8.dp)
+                                            .fillMaxSize()
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Model Loaded",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = Color(0xFF1C1B1F)
                                 )
-                            } else {
-                                Image(
-                                    painter = painterResource(id = R.drawable.ic_ai_chip_import_model),
-                                    contentDescription = "AI Chip",
-                                    modifier = Modifier
-                                        .padding(8.dp)
-                                        .fillMaxSize()
+                                Text(
+                                    text = loadedModel!!.first,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFF1C1B1F).copy(alpha = 0.6f)
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Model Loaded",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Color(0xFF1C1B1F)
-                            )
-                            Text(
-                                text = loadedModel!!.first,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFF1C1B1F).copy(alpha = 0.6f)
-                            )
-                        }
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_check),
+                            contentDescription = "Loaded",
+                            tint = PurplePrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_check),
-                        contentDescription = "Loaded",
-                        tint = PurplePrimary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            } else {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 20.dp)
-                ) {
+                } else {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 20.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_ai_chip),
-                            contentDescription = "AI Chip",
-                            tint = PurplePrimary,
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "Choose Your AI Model",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                color = PurplePrimary,
-                                fontSize = 16.sp
-                            )
-                        )
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = PurplePrimary,
-                        modifier = Modifier.size(20.dp)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.fillMaxSize()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
-                                painter = painterResource(id = R.drawable.ic_arrow_right),
-                                contentDescription = "Arrow Right",
-                                tint = White,
-                                modifier = Modifier.size(12.dp)
+                                painter = painterResource(id = R.drawable.ic_ai_chip),
+                                contentDescription = "AI Chip",
+                                tint = PurplePrimary,
+                                modifier = Modifier.size(32.dp)
                             )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "Choose Your AI Model",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    color = PurplePrimary,
+                                    fontSize = 16.sp
+                                )
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = PurplePrimary,
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_arrow_right),
+                                    contentDescription = "Arrow Right",
+                                    tint = White,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
 
-        if (showModelDialog) {
-            Dialog(
-                onDismissRequest = {
-                    if (!viewModel.isLoadingModel.value && importState == null) {
-                        showModelDialog = false
-                        viewModel.importError.value = ""
-                        Log.d(
-                            "SetupScreen",
-                            "Dialog dismissed, showImportSuccess=${viewModel.showImportSuccess.value}"
-                        )
-                    }
-                },
-                properties = DialogProperties(
-                    usePlatformDefaultWidth = false,
-                    dismissOnBackPress = !viewModel.isLoadingModel.value && importState == null,
-                    dismissOnClickOutside = !viewModel.isLoadingModel.value && importState == null
+            viewModel.importError.value.takeIf { it.isNotEmpty() }?.let { error ->
+                Spacer(modifier = Modifier.height(8.dp)) // Reduced spacing
+                Text(
+                    text = error,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 4.dp)
                 )
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f))
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    ModelImportCard(
-                        viewModel = viewModel,
-                        downloadManager = downloadManager,
-                        modelOptions = modelOptions,
-                        onImportClick = {
-                            filePickerLauncher.launch("application/*")
-                        },
-                        onSave = { modelPath, isDownloaded, displayName ->
-                            Log.d(
-                                "SetupScreen",
-                                "onSave called with modelPath=$modelPath, isDownloaded=$isDownloaded, displayName=$displayName"
-                            )
-                            viewModel.setModelPath(modelPath)
-                            importState = ImportState(modelPath, isDownloaded, displayName)
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth(0.9f)
-                            .wrapContentHeight()
-                            .align(Alignment.Center)
-                    )
-                }
             }
+
+            Spacer(modifier = Modifier.height(24.dp)) // Reduced spacing
         }
 
-        viewModel.importError.value.takeIf { it.isNotEmpty() }?.let { error ->
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = error,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(100.dp))
-
+        // "Done" button at the bottom with padding
         Box(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp), // Ensure the button has padding at the bottom
             contentAlignment = Alignment.Center
         ) {
             Button(
@@ -704,6 +660,55 @@ fun SetupScreen(
                     text = "Done",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+
+    if (showModelDialog) {
+        Dialog(
+            onDismissRequest = {
+                if (!viewModel.isLoadingModel.value && importState == null) {
+                    showModelDialog = false
+                    viewModel.importError.value = ""
+                    Log.d(
+                        "SetupScreen",
+                        "Dialog dismissed, showImportSuccess=${viewModel.showImportSuccess.value}"
+                    )
+                }
+            },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = !viewModel.isLoadingModel.value && importState == null,
+                dismissOnClickOutside = !viewModel.isLoadingModel.value && importState == null
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                ModelImportCard(
+                    viewModel = viewModel,
+                    downloadManager = downloadManager,
+                    modelOptions = modelOptions,
+                    onImportClick = {
+                        filePickerLauncher.launch("application/*")
+                    },
+                    onSave = { modelPath, isDownloaded, displayName ->
+                        Log.d(
+                            "SetupScreen",
+                            "onSave called with modelPath=$modelPath, isDownloaded=$isDownloaded, displayName=$displayName"
+                        )
+                        viewModel.setModelPath(modelPath)
+                        importState = ImportState(modelPath, isDownloaded, displayName)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .wrapContentHeight()
+                        .align(Alignment.Center)
                 )
             }
         }
