@@ -50,7 +50,7 @@ private fun getModelFileName(modelName: String): String {
 
 data class ModelInfo(
     val name: String,
-    val file: File, // Changed to File to store the full path
+    val file: File,
     val isDownloaded: Boolean,
     val iconResId: Int? = null,
     val size: String? = null
@@ -74,56 +74,34 @@ fun ModelImportCard(
     var selectedModel by remember { mutableStateOf<ModelInfo?>(null) }
     var shouldCopyFile by remember { mutableStateOf(false) }
 
-    // Store the currently loaded model
+    // Store the currently imported (loaded) model
     var loadedModel by remember { mutableStateOf<ModelInfo?>(null) }
 
-    // Initialize the loaded model
+    // Initialize the loaded model for imported models only
     LaunchedEffect(Unit) {
         val currentModelPath = viewModel.modelPath.value
         val currentFile = File(currentModelPath)
         val currentDisplayName = viewModel.getModelDisplayName(currentFile.name)
 
-        // Set the loaded model
+        // Set the loaded model only if it's an imported model
         if (currentModelPath.isNotEmpty() && currentFile.exists() && viewModel.isModelLoaded.value) {
-            val downloadable = modelOptions.find { it.name == currentDisplayName }
-            loadedModel = ModelInfo(
-                name = currentDisplayName,
-                file = currentFile,
-                isDownloaded = viewModel.downloadedModels.value.contains(currentDisplayName),
-                iconResId = downloadable?.iconResId,
-                size = downloadable?.size?.toString()
-            )
-            selectedModel = loadedModel // Auto-select the loaded model
-        }
-
-        Log.d("ModelImportCard", "LoadedModel: ${loadedModel?.name}")
-    }
-
-    // Update loaded model when a new model is downloaded
-    LaunchedEffect(viewModel.downloadedModels.value) {
-        val currentModelPath = viewModel.modelPath.value
-        val currentFile = File(currentModelPath)
-        val currentDisplayName = viewModel.getModelDisplayName(currentFile.name)
-
-        // Update loaded model if the downloaded model matches the current path
-        if (currentModelPath.isNotEmpty() && currentFile.exists() && viewModel.isModelLoaded.value) {
-            val downloadable = modelOptions.find { it.name == currentDisplayName }
-            loadedModel = ModelInfo(
-                name = currentDisplayName,
-                file = currentFile,
-                isDownloaded = viewModel.downloadedModels.value.contains(currentDisplayName),
-                iconResId = downloadable?.iconResId,
-                size = downloadable?.size?.toString()
-            )
-            selectedModel = loadedModel
-        }
-
-        // Auto-select the loaded model if present
-        if (loadedModel != null) {
-            selectedModel = loadedModel
+            val isDownloaded = viewModel.downloadedModels.value.contains(currentDisplayName)
+            if (!isDownloaded) { // Only set for imported models
+                val downloadable = modelOptions.find { it.name == currentDisplayName }
+                loadedModel = ModelInfo(
+                    name = currentDisplayName,
+                    file = currentFile,
+                    isDownloaded = false,
+                    iconResId = R.drawable.ic_ai_chip_import_model,
+                    size = downloadable?.size?.toString()
+                )
+                selectedModel = loadedModel // Auto-select the loaded model
+            }
+            Log.d("ModelImportCard", "LoadedModel: ${loadedModel?.name}")
         }
     }
 
+    // Handle file copying for imported models
     fun copySelectedFile() {
         if (shouldCopyFile) {
             viewModel.selectedUri.value?.let { uri ->
@@ -270,35 +248,7 @@ fun ModelImportCard(
 
     fun handleModelDownloadComplete(modelName: String, downloadedFile: File) {
         viewModel.addDownloadedModel(modelName)
-        val downloadable = modelOptions.find { it.name == modelName }
-        if (downloadable != null) {
-            // If the downloaded model matches the current model path, update loadedModel
-            val currentModelPath = viewModel.modelPath.value
-            val currentFile = File(currentModelPath)
-            val currentDisplayName = viewModel.getModelDisplayName(currentFile.name)
-            if (modelName == currentDisplayName && currentModelPath.isNotEmpty() && currentFile.exists()) {
-                loadedModel = ModelInfo(
-                    name = modelName,
-                    file = currentFile,
-                    isDownloaded = true,
-                    iconResId = downloadable.iconResId,
-                    size = downloadable.size.toString()
-                )
-                selectedModel = loadedModel
-            } else {
-                // Select the newly downloaded model if no model is currently loaded
-                if (loadedModel == null) {
-                    loadedModel = ModelInfo(
-                        name = modelName,
-                        file = downloadedFile,
-                        isDownloaded = true,
-                        iconResId = downloadable.iconResId,
-                        size = downloadable.size.toString()
-                    )
-                    selectedModel = loadedModel
-                }
-            }
-        }
+        // Do not update loadedModel for downloaded models
         Log.d("ModelImportCard", "Download complete: $modelName, Path=${downloadedFile.absolutePath}")
     }
 
@@ -376,7 +326,7 @@ fun ModelImportCard(
                 )
             }
 
-            // Display the loaded model or the Import Model button
+            // Display the loaded (imported) model or the Import Model button
             if (isCopying && copyingFileName != null) {
                 Card(
                     modifier = Modifier
@@ -465,16 +415,7 @@ fun ModelImportCard(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Surface(
                                 shape = CircleShape,
-                                color = if (loadedModel!!.isDownloaded) {
-                                    when (loadedModel!!.name) {
-                                        "Qwen 2.5-0.5B" -> Color.White
-                                        "Arcee-lite 1.78B" -> Color.Black
-                                        "Orca Mini-3B" -> Color(0xFFD9BDFE)
-                                        else -> Color(0xFFD9BDFE)
-                                    }
-                                } else {
-                                    Color(0xFFD9BDFE)
-                                },
+                                color = Color(0xFFD9BDFE),
                                 modifier = Modifier.size(40.dp)
                             ) {
                                 Image(
@@ -483,19 +424,14 @@ fun ModelImportCard(
                                     ),
                                     contentDescription = loadedModel!!.name,
                                     modifier = Modifier
-                                        .padding(
-                                            start = 4.dp,
-                                            top = 4.dp,
-                                            end = 4.dp,
-                                            bottom = if (loadedModel!!.name == "Arcee-lite 1.78B") 12.dp else 4.dp
-                                        )
+                                        .padding(4.dp)
                                         .fillMaxSize()
                                 )
                             }
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = if (loadedModel!!.isDownloaded) "Downloaded Model" else "Imported Model",
+                                    text = "Imported Model",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = Color(0xFF1C1B1F)
                                 )
@@ -614,7 +550,7 @@ private fun ModelOptionItem(
     downloadManager: DownloadManager,
     onDownloadStart: () -> Unit,
     onProgressUpdate: (Float) -> Unit,
-    onDownloadComplete: (File) -> Unit, // Pass the downloaded file
+    onDownloadComplete: (File) -> Unit,
     isLastItem: Boolean,
     isSelected: Boolean,
     onSelect: () -> Unit
@@ -762,10 +698,6 @@ private fun ModelOptionItem(
                     onCheckedChange = { checked ->
                         if (checked) {
                             onSelect()
-                        } else {
-                            if (isSelected) {
-                                onSelect() // Toggle off selection
-                            }
                         }
                     },
                     colors = CheckboxDefaults.colors(
