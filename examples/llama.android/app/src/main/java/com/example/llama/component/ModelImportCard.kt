@@ -74,34 +74,32 @@ fun ModelImportCard(
     var copyJob by remember { mutableStateOf<Job?>(null) }
     var selectedModel by remember { mutableStateOf<ModelInfo?>(null) }
     var shouldCopyFile by remember { mutableStateOf(false) }
+    var outputStream by remember { mutableStateOf<FileOutputStream?>(null) }
 
-    // Local state to control what the UI displays (null = show "Import Model" button)
     var displayedModel by remember { mutableStateOf<ModelInfo?>(null) }
 
-    // Reset displayedModel and MainViewModel states when the dialog opens
     LaunchedEffect(Unit) {
         displayedModel = null
         viewModel.selectedUri.value = null
         viewModel.selectedFileName.value = null
         shouldCopyFile = false
-        Log.d("ModelImportCard", "Dialog opened, reset displayedModel, selectedUri, selectedFileName, and shouldCopyFile")
+        viewModel.showImportSuccess.value = false
+        Log.d("ModelImportCard", "Dialog opened, reset displayedModel, selectedUri, selectedFileName, shouldCopyFile, and showImportSuccess")
     }
 
-    // Reset displayedModel and clear import-related states when the dialog is dismissed
     DisposableEffect(Unit) {
         onDispose {
             displayedModel = null
             viewModel.selectedUri.value = null
             viewModel.selectedFileName.value = null
             shouldCopyFile = false
+            viewModel.showImportSuccess.value = false
             onDismiss()
-            Log.d("ModelImportCard", "Dialog dismissed, reset displayedModel, selectedUri, selectedFileName, shouldCopyFile, and called onDismiss")
+            Log.d("ModelImportCard", "Dialog dismissed, reset displayedModel, selectedUri, selectedFileName, shouldCopyFile, showImportSuccess, and called onDismiss")
         }
     }
 
-    // Count available models (downloaded + imported) and auto-select if there's only one
     LaunchedEffect(displayedModel, viewModel.downloadedModels.value) {
-        // Count downloaded models that are complete and exist
         val downloadedModelCount = modelOptions.count { model ->
             val isDownloaded = viewModel.downloadedModels.value.contains(model.name)
             if (isDownloaded) {
@@ -115,20 +113,14 @@ fun ModelImportCard(
             }
         }
 
-        // Check if there's an imported model
         val importedModelCount = if (displayedModel != null) 1 else 0
-
-        // Total available models
         val totalAvailableModels = downloadedModelCount + importedModelCount
 
-        // If there's exactly one model and none is selected, auto-select it
         if (totalAvailableModels == 1 && selectedModel == null) {
             if (displayedModel != null) {
-                // If the only model is the imported one
                 selectedModel = displayedModel
                 Log.d("ModelImportCard", "Auto-selected imported model: ${displayedModel!!.name}")
             } else {
-                // If the only model is a downloaded one
                 val downloadedModel = modelOptions.first { model ->
                     viewModel.downloadedModels.value.contains(model.name) &&
                         File(
@@ -153,14 +145,12 @@ fun ModelImportCard(
         }
     }
 
-    // Handle file copying for imported models
     fun copySelectedFile() {
         if (shouldCopyFile) {
             viewModel.selectedUri.value?.let { uri ->
                 val rawFileName = viewModel.selectedFileName.value ?: return@let
                 val internalFile = File(context.filesDir, rawFileName)
 
-                // Check if file already exists
                 if (internalFile.exists()) {
                     Log.d("ModelImportCard", "File already exists: $rawFileName, using existing file")
                     val displayName = viewModel.getModelDisplayName(rawFileName)
@@ -180,6 +170,7 @@ fun ModelImportCard(
                 }
 
                 val job = scope.launch {
+                    var localOutputStream: FileOutputStream? = null
                     try {
                         isCopying = true
                         copyingFileName = rawFileName
@@ -188,17 +179,17 @@ fun ModelImportCard(
                             ?.use { it.statSize } ?: 0L
                         withContext(Dispatchers.IO) {
                             context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                                FileOutputStream(internalFile).use { outputStream ->
-                                    val buffer = ByteArray(65536)
-                                    var bytesCopied = 0L
-                                    var bytesRead: Int
-                                    while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                                        outputStream.write(buffer, 0, bytesRead)
-                                        bytesCopied += bytesRead
-                                        if (fileSize > 0) {
-                                            withContext(Dispatchers.Main) {
-                                                copyProgress = bytesCopied.toFloat() / fileSize
-                                            }
+                                localOutputStream = FileOutputStream(internalFile)
+                                outputStream = localOutputStream
+                                val buffer = ByteArray(65536)
+                                var bytesCopied = 0L
+                                var bytesRead: Int
+                                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                    localOutputStream!!.write(buffer, 0, bytesRead)
+                                    bytesCopied += bytesRead
+                                    if (fileSize > 0) {
+                                        withContext(Dispatchers.Main) {
+                                            copyProgress = bytesCopied.toFloat() / fileSize
                                         }
                                     }
                                 }
@@ -231,10 +222,16 @@ fun ModelImportCard(
                         shouldCopyFile = false
                         Log.e("ModelImportCard", "File copy error: ${e.stackTraceToString()}")
                     } finally {
+                        try {
+                            localOutputStream?.close()
+                        } catch (e: Exception) {
+                            Log.e("ModelImportCard", "Error closing FileOutputStream: ${e.message}")
+                        }
+                        outputStream = null
                         isCopying = false
-                        copyingFileName = null
                         copyProgress = 0f
                         copyJob = null
+                        // Do not reset copyingFileName here; let cancelCopy handle it
                     }
                 }
                 copyJob = job
@@ -246,16 +243,59 @@ fun ModelImportCard(
         copyJob?.let { job ->
             scope.launch {
                 job.cancelAndJoin()
-                File(context.filesDir, copyingFileName ?: "").delete()
+                try {
+                    outputStream?.flush()
+                    outputStream?.close()
+                } catch (e: Exception) {
+                    Log.e("ModelImportCard", "Error closing FileOutputStream on cancel: ${e.message}")
+                }
+                outputStream = null
+
+                // Validate copyingFileName before proceeding
+                if (copyingFileName.isNullOrEmpty()) {
+                    Log.e("ModelImportCard", "Cannot delete partial file: copyingFileName is null or empty")
+                    viewModel.importError.value = "Import cancelled, but failed to delete partial file due to missing file name."
+                } else {
+                    val fileToDelete = File(context.filesDir, copyingFileName!!)
+                    var deletionSuccessful = false
+                    var attempts = 0
+                    val maxAttempts = 5
+                    try {
+                        if (fileToDelete.exists()) {
+                            Log.d("ModelImportCard", "Attempting to delete file: ${fileToDelete.absolutePath}, size=${fileToDelete.length()} bytes, canWrite=${fileToDelete.canWrite()}")
+                            while (!deletionSuccessful && attempts < maxAttempts) {
+                                deletionSuccessful = fileToDelete.delete()
+                                if (!deletionSuccessful) {
+                                    attempts++
+                                    Log.d("ModelImportCard", "Deletion attempt $attempts failed, retrying after 500ms")
+                                    delay(500L)
+                                }
+                            }
+                        } else {
+                            Log.d("ModelImportCard", "File does not exist, no deletion needed: ${fileToDelete.absolutePath}")
+                            deletionSuccessful = true
+                        }
+                    } catch (e: Exception) {
+                        Log.e("ModelImportCard", "Error deleting partial file: ${e.message}")
+                    }
+                    if (!deletionSuccessful) {
+                        Log.e("ModelImportCard", "Failed to delete partial file after $maxAttempts attempts: ${fileToDelete.absolutePath}")
+                        viewModel.importError.value = "Import cancelled, but failed to delete partial file after multiple attempts. Please try again."
+                    } else {
+                        Log.d("ModelImportCard", "File deletion successful: ${fileToDelete.absolutePath}")
+                        viewModel.importError.value = "Import cancelled"
+                    }
+                }
+
                 isCopying = false
-                copyingFileName = null
+                copyingFileName = null // Reset here after deletion attempt
                 copyProgress = 0f
                 copyJob = null
-                viewModel.importError.value = "Import cancelled"
                 viewModel.selectedUri.value = null
                 viewModel.selectedFileName.value = null
                 shouldCopyFile = false
-                displayedModel = null // Reset displayed model on cancel
+                displayedModel = null
+                viewModel.showImportSuccess.value = false
             }
         }
     }
@@ -269,24 +309,30 @@ fun ModelImportCard(
             val rawFileName = viewModel.selectedFileName.value
             if (rawFileName != null) {
                 val internalFile = File(context.filesDir, rawFileName)
-                if (!internalFile.exists()) {
+                if (internalFile.exists()) {
+                    if (internalFile.length() > 0) {
+                        Log.d("ModelImportCard", "File already exists: $rawFileName, using existing file")
+                        val displayName = viewModel.getModelDisplayName(rawFileName)
+                        val modelInfo = ModelInfo(
+                            name = displayName,
+                            file = internalFile,
+                            isDownloaded = false,
+                            iconResId = R.drawable.ic_ai_chip_import_model
+                        )
+                        displayedModel = modelInfo
+                        selectedModel = modelInfo
+                        viewModel.showImportSuccess.value = true
+                        shouldCopyFile = false
+                        viewModel.selectedUri.value = null
+                        viewModel.selectedFileName.value = null
+                    } else {
+                        internalFile.delete()
+                        shouldCopyFile = true
+                        copySelectedFile()
+                    }
+                } else {
                     shouldCopyFile = true
                     copySelectedFile()
-                } else {
-                    viewModel.importError.value = "Model file already imported: $rawFileName"
-                    viewModel.selectedUri.value = null
-                    viewModel.selectedFileName.value = null
-                    shouldCopyFile = false
-                    val displayName = viewModel.getModelDisplayName(rawFileName)
-                    val modelInfo = ModelInfo(
-                        name = displayName,
-                        file = internalFile,
-                        isDownloaded = false,
-                        iconResId = R.drawable.ic_ai_chip_import_model
-                    )
-                    displayedModel = modelInfo
-                    selectedModel = modelInfo
-                    viewModel.showImportSuccess.value = true
                 }
             }
         } else {
