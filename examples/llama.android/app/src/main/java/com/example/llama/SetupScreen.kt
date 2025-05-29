@@ -175,7 +175,7 @@ fun SetupScreen(
         } else {
             loadedModel = null
             isModelReady = false
-            Log.d("SetupScreen", "No model loaded")
+            Log.d("SetupScreen", "No model loaded initially")
         }
     }
 
@@ -195,6 +195,8 @@ fun SetupScreen(
                         "SetupScreen",
                         "Import completed: displayName=${state.displayName}, isModelReady=$isModelReady"
                     )
+                } else {
+                    Log.d("SetupScreen", "Import failed: ${viewModel.importError.value}")
                 }
                 importState = null
             }
@@ -232,18 +234,16 @@ fun SetupScreen(
         }
     }
 
-    // Use a scrollable Column to ensure all content is visible
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 18.dp)
-            .verticalScroll(rememberScrollState()), // Enable scrolling
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         Column(
             horizontalAlignment = Alignment.Start,
-            modifier = Modifier
-                .padding(top = 60.dp) // Reduced top padding to save space
+            modifier = Modifier.padding(top = 60.dp)
         ) {
             val customFont = FontFamily(Font(R.font.roboto_serif, FontWeight.Normal))
             Text(
@@ -266,7 +266,7 @@ fun SetupScreen(
                 textAlign = TextAlign.Start
             )
 
-            Spacer(modifier = Modifier.height(24.dp)) // Reduced spacing
+            Spacer(modifier = Modifier.height(24.dp))
 
             OutlinedTextField(
                 value = viewModel.userName.value,
@@ -303,7 +303,7 @@ fun SetupScreen(
                 singleLine = true
             )
 
-            Spacer(modifier = Modifier.height(16.dp)) // Reduced spacing
+            Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedTextField(
                 value = viewModel.assistantName.value,
@@ -340,7 +340,7 @@ fun SetupScreen(
                 singleLine = true
             )
 
-            Spacer(modifier = Modifier.height(16.dp)) // Reduced spacing
+            Spacer(modifier = Modifier.height(16.dp))
 
             var expanded by remember { mutableStateOf(false) }
             Log.d(
@@ -453,7 +453,7 @@ fun SetupScreen(
             }
 
             if (calendarPermissionDenied) {
-                Spacer(modifier = Modifier.height(8.dp)) // Reduced spacing
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -462,7 +462,7 @@ fun SetupScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Calendar permission denied. Please grant permissions.",
+                        text = "Calendar permission denied. Please grant permissions to proceed.",
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.weight(1f)
                     )
@@ -482,7 +482,7 @@ fun SetupScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp)) // Reduced spacing
+            Spacer(modifier = Modifier.height(16.dp))
 
             Card(
                 modifier = Modifier
@@ -608,7 +608,7 @@ fun SetupScreen(
             }
 
             viewModel.importError.value.takeIf { it.isNotEmpty() }?.let { error ->
-                Spacer(modifier = Modifier.height(8.dp)) // Reduced spacing
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = error,
                     color = MaterialTheme.colorScheme.error,
@@ -616,18 +616,26 @@ fun SetupScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp)) // Reduced spacing
+            Spacer(modifier = Modifier.height(24.dp))
         }
 
-        // "Done" button at the bottom with padding
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 16.dp), // Ensure the button has padding at the bottom
+                .padding(bottom = 16.dp),
             contentAlignment = Alignment.Center
         ) {
+            // Log all conditions before rendering the button
+            Log.d(
+                "SetupScreen",
+                "Done button conditions - isModelReady: $isModelReady, " +
+                    "userName: ${viewModel.userName.value}, " +
+                    "assistantName: ${viewModel.assistantName.value}, " +
+                    "selectedCalendarId: $selectedCalendarId"
+            )
             Button(
                 onClick = {
+                    Log.d("SetupScreen", "Done button clicked")
                     viewModel.savePrefs(prefs)
                     with(prefs.edit()) {
                         putBoolean("isFirstLaunch", false)

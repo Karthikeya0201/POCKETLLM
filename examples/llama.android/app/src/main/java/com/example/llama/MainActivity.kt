@@ -275,10 +275,11 @@ fun AppNavigation(
             ?.toList() ?: emptyList()
 
         val allFiles = (importedFiles + downloadedFiles).distinctBy { it.name }
-        hasModels = allFiles.isNotEmpty()
+        hasModels = allFiles.isNotEmpty() || (viewModel.modelPath.value.isNotEmpty() && viewModel.isModelLoaded.value)
 
         Log.d("AppNavigation", "LaunchedEffect - Imported models: ${importedFiles.map { it.absolutePath }}")
         Log.d("AppNavigation", "LaunchedEffect - Downloaded models: ${downloadedFiles.map { it.absolutePath }}")
+        Log.d("AppNavigation", "LaunchedEffect - modelPath: ${viewModel.modelPath.value}, isModelLoaded: ${viewModel.isModelLoaded.value}")
         Log.d("AppNavigation", "LaunchedEffect - Has models: $hasModels")
     }
 
@@ -296,16 +297,6 @@ fun AppNavigation(
         startDestination = startDestination
     ) {
         composable("setup") {
-            // Redirect to chat screen if models are found after starting on setup
-            LaunchedEffect(hasModels) {
-                if (hasModels == true) {
-                    Log.d("AppNavigation", "Models detected after starting on setup, navigating to chat")
-                    navController.navigate("chat") {
-                        popUpTo("setup") { inclusive = true }
-                    }
-                }
-            }
-
             SetupScreen(
                 navController = navController,
                 viewModel = viewModel,
@@ -316,9 +307,11 @@ fun AppNavigation(
             )
         }
         composable("chat") {
-            if (hasModels == true) {
+            Log.d("AppNavigation", "Entered chat route - hasModels: $hasModels, isModelLoaded: ${viewModel.isModelLoaded.value}, modelPath: ${viewModel.modelPath.value}")
+            if (hasModels == true || viewModel.isModelLoaded.value) {
                 LaunchedEffect(Unit) {
                     if (!viewModel.isModelLoaded.value && viewModel.modelPath.value.isEmpty()) {
+                        Log.d("AppNavigation", "Model not loaded and modelPath is empty, attempting to load a model")
                         val allFiles = (context.filesDir.listFiles()
                             ?.filter { it.name.endsWith(".gguf", ignoreCase = true) }
                             ?.toList() ?: emptyList()) +
@@ -329,11 +322,19 @@ fun AppNavigation(
                         if (firstModel != null) {
                             Log.d("AppNavigation", "Loading first available model: ${firstModel.absolutePath}")
                             viewModel.setModelPath(firstModel.absolutePath)
+                        } else {
+                            Log.d("AppNavigation", "No models found during chat route loading, navigating to setup")
+                            navController.navigate("setup") {
+                                popUpTo("chat") { inclusive = true }
+                            }
                         }
+                    } else {
+                        Log.d("AppNavigation", "Model already loaded or modelPath exists, skipping model loading")
                     }
                 }
 
                 if (viewModel.isModelLoaded.value) {
+                    Log.d("AppNavigation", "Model is loaded, displaying ChatScreen")
                     ChatScreen(
                         navController = navController,
                         viewModel = viewModel,
@@ -353,8 +354,8 @@ fun AppNavigation(
                 }
             } else {
                 LaunchedEffect(hasModels) {
-                    if (hasModels == false) {
-                        Log.d("AppNavigation", "No models available in chat route, navigating to setup screen")
+                    if (hasModels == false && !viewModel.isModelLoaded.value) {
+                        Log.d("AppNavigation", "No models available in chat route and model not loaded, navigating to setup screen")
                         navController.navigate("setup") {
                             popUpTo("chat") { inclusive = true }
                         }
