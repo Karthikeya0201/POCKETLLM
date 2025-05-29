@@ -3,6 +3,7 @@ package com.example.llama.component
 import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -34,7 +35,6 @@ import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
-import android.util.Log
 import android.os.Environment
 
 private fun checkModelInLocalStorage(context: Context): Boolean {
@@ -78,18 +78,24 @@ fun ModelImportCard(
     // Local state to control what the UI displays (null = show "Import Model" button)
     var displayedModel by remember { mutableStateOf<ModelInfo?>(null) }
 
-    // Reset displayedModel when the dialog opens
+    // Reset displayedModel and MainViewModel states when the dialog opens
     LaunchedEffect(Unit) {
         displayedModel = null
-        Log.d("ModelImportCard", "Dialog opened, reset displayedModel to null")
+        viewModel.selectedUri.value = null
+        viewModel.selectedFileName.value = null
+        shouldCopyFile = false
+        Log.d("ModelImportCard", "Dialog opened, reset displayedModel, selectedUri, selectedFileName, and shouldCopyFile")
     }
 
-    // Reset displayedModel and call onDismiss when the dialog is dismissed
+    // Reset displayedModel and clear import-related states when the dialog is dismissed
     DisposableEffect(Unit) {
         onDispose {
             displayedModel = null
+            viewModel.selectedUri.value = null
+            viewModel.selectedFileName.value = null
+            shouldCopyFile = false
             onDismiss()
-            Log.d("ModelImportCard", "Dialog dismissed, reset displayedModel and called onDismiss")
+            Log.d("ModelImportCard", "Dialog dismissed, reset displayedModel, selectedUri, selectedFileName, shouldCopyFile, and called onDismiss")
         }
     }
 
