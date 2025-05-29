@@ -553,15 +553,16 @@ class MessageHandler {
 
 
                     else -> {
-                        val contextItems = withContext(Dispatchers.Default) {
-                            ragHandler.retrieveRelevantContext(prompt, topK = 5)
-                        }
+                        val contextItems = retryWithBackoff(3, 1000L) {
+                            ragHandler.retrieveRelevantContext(prompt, topK = 3)
+                        } ?: emptyList()
                         val contextString = if (contextItems.isNotEmpty()) {
                             contextItems.joinToString("\n") { "Context: $it" }
                         } else {
+                            Log.d("MH", "No valid RAG context retrieved after retries")
                             "No valid context found."
                         }
-                        Log.d("MessageHandler", "Retrieved RAG context: $contextString")
+                        Log.d("MH", "Retrieved RAG context: $contextString")
 
                         val chatPrompt = """
                             You are ${params.assistantName}, a helpful AI assistant to ${params.userName}. Follow these guidelines:
@@ -584,9 +585,12 @@ class MessageHandler {
                         if (chatMessages.none { it.first == "system" }) {
                             chatMessages.add(0, "system" to chatPrompt)
                         }
+
+                        Log.d("MessageHandler", "Chat Prompt: $chatPrompt\n User Msg: $prompt\n")
+
                         val formattedChatPrompt =
                             formatChatTemplate(chatMessages, addGenerationPrompt = true)
-                        Log.d("MessageHandler", "Formatted chat prompt: $formattedChatPrompt")
+
 
                         responseBuilder.clear()
                         params.llama.send(formattedChatPrompt, formatChat = true)
@@ -624,4 +628,20 @@ class MessageHandler {
             }
         }
     }
+}
+
+private suspend fun <T> retryWithBackoff(
+    maxAttempts: Int,
+    delayMs: Long,
+    block: suspend () -> T
+): T? {
+    repeat(maxAttempts) { attempt ->
+        try {
+            return block()
+        } catch (e: Exception) {
+            Log.d("MessageHandler", "Attempt ${attempt + 1} failed: ${e.message}")
+            if (attempt < maxAttempts - 1) delay(delayMs)
+        }
+    }
+    return null
 }
