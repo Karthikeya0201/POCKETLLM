@@ -122,6 +122,11 @@ class MessageHandler {
                     return@launch
                 }
 
+                val alarmRegex = Regex(
+                    """^(set|schedule)\s+an?\s+alarm(?:\s+for\s+([0-1]?\d|2[0-3]):([0-5]\d))?$""",
+                    RegexOption.IGNORE_CASE
+                )
+
                 val questionWordsRegex = Regex(
                     """^(explain|what|why|where|how|when|who|which|describe|tell|define|clarify)\b""",
                     RegexOption.IGNORE_CASE
@@ -182,6 +187,23 @@ class MessageHandler {
                             "MessageHandler",
                             "Call attempt for '$nameOrNumber' success: $callSuccess"
                         )
+                        return@launch
+                    }
+
+                    alarmRegex.matches(prompt.trim()) -> {
+                        Log.d("MessageHandler", "Alarm pattern matched: $prompt")
+                        delay(500)
+
+                        val match = alarmRegex.find(prompt.trim())!!
+                        val time = "${match.groupValues[2]}:${match.groupValues[3]}"
+                        val intentAlarm = IntentAlarm(params.context)
+                        val alarmSuccess = intentAlarm.setAlarm(time)
+                        params.messages[params.messages.lastIndex] = if (alarmSuccess) {
+                            "${params.assistantName}: Alarm set for $time"
+                        } else {
+                            "${params.assistantName}: Failed to set alarm for $time"
+                        }
+                        Log.d("MessageHandler", "Alarm attempt for '$time' success: $alarmSuccess")
                         return@launch
                     }
 

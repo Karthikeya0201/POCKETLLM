@@ -123,11 +123,11 @@ class CalendarIntent(private val context: Context) {
                 put(
                     CalendarContract.Events.DESCRIPTION,
                     ""
-                ) // Empty, as MessageHandler doesn't provide it
+                )
                 put(
                     CalendarContract.Events.EVENT_LOCATION,
                     ""
-                ) // Empty, as MessageHandler doesn't provide it
+                )
                 put(CalendarContract.Events.CALENDAR_ID, calendarId)
                 put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
             }
