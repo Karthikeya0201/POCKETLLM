@@ -60,7 +60,7 @@ class RAGHandler constructor(private val context: Context) {
         if (!isInitialized) {
             synchronized(this) {
                 if (!isInitialized) {
-                    dbFile = copyToLocalStorage(context, "QAonnx.db")
+                    dbFile = copyToLocalStorage(context, "newQA.db")
                     Log.d(tag, "Initialized with dbFile at: ${dbFile?.absolutePath}")
                     isInitialized = true
                 }
@@ -119,29 +119,32 @@ class RAGHandler constructor(private val context: Context) {
 
             val promptEmbedding = computeEmbedding(prompt)
             if (promptEmbedding.all { it == 0f }) {
-                Log.e(tag, "Zero prompt embedding for: $prompt}")
+                Log.e(tag, "Zero prompt embedding for: $prompt")
                 return emptyList()
             }
 
-            val cursor = db.rawQuery("SELECT id, text, embedding FROM qa", null)
+            val cursor = db.rawQuery("SELECT id, question, answer, embedding FROM qa", null)
             val results = mutableListOf<Pair<Float, String>>()
 
             cursor.use {
                 while (it.moveToNext()) {
-                    val text = it.getString(it.getColumnIndexOrThrow("text"))
+                    val question = it.getString(it.getColumnIndexOrThrow("question"))
+                    val answer = it.getString(it.getColumnIndexOrThrow("answer"))
                     val embeddingBlob = it.getBlob(it.getColumnIndexOrThrow("embedding"))
                     val embedding = FloatArray(embeddingSize)
                     try {
                         ByteBuffer.wrap(embeddingBlob).order(ByteOrder.LITTLE_ENDIAN)
                             .asFloatBuffer().get(embedding)
                         if (embedding.all { it == 0f }) {
-                            Log.w(tag, "Zero embedding in database for text: $text}")
+                            Log.w(tag, "Zero embedding in database for question: $question")
                             continue
                         }
                         val similarity = cosineSimilarity(promptEmbedding, embedding)
-                        results.add(similarity to text)
+                        // Combine question and answer for the context
+                        val context = "Question: $question\nAnswer: $answer"
+                        results.add(similarity to context)
                     } catch (e: Exception) {
-                        Log.w(tag, "Failed to process embedding for text: $text, error: ${e.message}")
+                        Log.w(tag, "Failed to process embedding for question: $question, error: ${e.message}")
                         continue
                     }
                 }
