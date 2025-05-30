@@ -87,11 +87,13 @@ fun MessageBubble(
             modifier = Modifier
                 .widthIn(max = 300.dp) // Constrain maximum width
                 .background(bubbleColor, RoundedCornerShape(16.dp))
-                .padding(14.dp)
                 .align(Alignment.Center)
         ) {
             if (isLoading) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.padding(14.dp), // Apply padding to content
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     for (i in 0..2) {
                         val alpha = when ((dotAnimatable.value + (i * 0.33f)) % 1f) {
                             in 0f..0.33f -> 0.3f
@@ -110,7 +112,9 @@ fun MessageBubble(
                     }
                 }
             } else {
-                Column {
+                Column(
+                    modifier = Modifier.padding(14.dp) // Apply padding to content
+                ) {
                     messageSegments.forEach { segment ->
                         when (segment) {
                             is MessageSegment.TextSegment -> {
@@ -121,7 +125,7 @@ fun MessageBubble(
                                     fontFamily = FontFamily.SansSerif,
                                     fontWeight = FontWeight.Normal,
                                     modifier = Modifier
-                                        .padding(bottom = 8.dp), // Removed fillMaxWidth()
+                                        .padding(bottom = 8.dp),
                                     softWrap = true,
                                     overflow = androidx.compose.ui.text.style.TextOverflow.Clip
                                 )
@@ -130,8 +134,9 @@ fun MessageBubble(
                                 CodeBlock(
                                     language = segment.language ?: "Code",
                                     code = segment.code,
+                                    bubbleColor = bubbleColor,
                                     modifier = Modifier
-                                        .padding(bottom = 8.dp) // Removed fillMaxWidth()
+                                        .padding(bottom = 8.dp)
                                 )
                             }
                         }
@@ -250,31 +255,34 @@ private fun parseMessageSegments(text: String): List<MessageSegment> {
 }
 
 /**
- * Composable for rendering a code block with a language header and copy button.
+ * Composable for rendering a code block with a language header, copy button, and a horizontal line.
  *
  * @param language The programming language (e.g., "kotlin", "python").
  * @param code The code content.
+ * @param bubbleColor The background color of the message bubble, used for the horizontal line.
  * @param modifier Modifier for the code block.
  */
 @Composable
 fun CodeBlock(
     language: String,
     code: String,
+    bubbleColor: Color,
     modifier: Modifier = Modifier
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
+    val codeBlockBackground = Color(0xFFF5F5F5)
 
     Column(
         modifier = modifier
-            .background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp))
-            .padding(8.dp)
+            .fillMaxWidth()
+            .background(codeBlockBackground, RoundedCornerShape(8.dp))
     ) {
         // Header with language and copy button
         Row(
             modifier = Modifier
-                .padding(horizontal = 8.dp, vertical = 4.dp), // Removed fillMaxWidth()
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp), // Increased padding
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -283,7 +291,8 @@ fun CodeBlock(
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     color = Color.Gray
-                )
+                ),
+                modifier = Modifier.weight(1f) // Push the copy button to the right
             )
             Box(
                 modifier = Modifier
@@ -301,7 +310,7 @@ fun CodeBlock(
                         imageVector = Icons.Default.ContentCopy,
                         contentDescription = "Copy Code",
                         tint = Color.Gray,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                     Text(
                         text = "Copy",
@@ -314,17 +323,26 @@ fun CodeBlock(
                 }
             }
         }
-        Spacer(modifier = Modifier.height(8.dp))
+        // Thick horizontal line matching the message bubble color
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(3.dp)
+                .background(bubbleColor)
+        )
+        Spacer(modifier = Modifier.height(8.dp)) // Increased spacer height
         Text(
             text = code,
             style = TextStyle(
                 fontFamily = FontFamily.Monospace,
                 fontSize = 14.sp,
+                fontWeight = FontWeight.Normal,
                 color = Color.Black,
-                textAlign = TextAlign.Start
+                textAlign = TextAlign.Start,
+                lineHeight = 21.sp
             ),
             modifier = Modifier
-                .padding(horizontal = 8.dp, vertical = 4.dp), // Removed fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 15.dp), // Increased padding
             softWrap = true
         )
     }
