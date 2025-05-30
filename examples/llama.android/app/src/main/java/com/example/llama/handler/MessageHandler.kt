@@ -1,22 +1,24 @@
 package com.example.llama.handler
 
 import android.content.Context
+import android.llama.cpp.LLamaAndroid
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import com.example.llama.handler.rag.RAGHandler
 import com.example.llama.model.ChatHistory
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-import android.llama.cpp.LLamaAndroid
 import kotlinx.coroutines.isActive
 
 data class MessageHandlerParams(
@@ -35,9 +37,11 @@ data class MessageHandlerParams(
 )
 
 class MessageHandler {
+
     private var sendJob: Job? = null
     private var responseBuilder = StringBuilder()
 
+    private lateinit var ragHandler: RAGHandler
     private fun formatChatTemplate(
         messages: List<Pair<String, String>>,
         addGenerationPrompt: Boolean = false
@@ -67,9 +71,11 @@ class MessageHandler {
                 msg.startsWith("$userName: ") -> {
                     pairs.add("user" to msg.removePrefix("$userName: ").trim())
                 }
+
                 msg.startsWith("$assistantName: ") -> {
                     pairs.add("assistant" to msg.removePrefix("$assistantName: ").trim())
                 }
+
                 else -> {
                     pairs.add("assistant" to msg.trim())
                 }
@@ -116,22 +122,22 @@ class MessageHandler {
                 )
 
                 val twoWordCallRegex = Regex(
-                    """^(call|phone|dial)\s+([a-zA-Z\s\-']+)$""",
+                    """^(call|phone|dial|contact)\s+([a-zA-Z\s\-']+)$""",
                     RegexOption.IGNORE_CASE
                 )
 
                 val smsRegex = Regex(
-                    """^(sms|text|message)\s+([a-zA-Z\s\-']+)\s*(.+)$""",
+                    """^(sms|text|message|ping)\s+([a-zA-Z\s\-']+)\s*(.+)$""",
                     RegexOption.IGNORE_CASE
                 )
 
                 val calendarKeywordsRegex = Regex(
-                    """\b(schedule|insert|plan|add)\b.*\b(event|task)\b.*\b(calendar)\b""",
+                    """\b(schedule|insert|plan|add)\b.*\b(event|task|meet)\b.*\b(calendar)\b""",
                     RegexOption.IGNORE_CASE
                 )
 
                 val ambiguousWordsRegex = Regex(
-                    """\b(call(ing)?|phone|dial(ing)?|event|meet(ing)?|schedul(e|ing)?|set|appointment|calendar|tomorrow|today|[0-9]+(am|pm)|sms|text|message)\b""",
+                    """\b(call(ing)?|phone|dial(ing)?|ring|buzz|contact|reach|talk|speak|event|meet(ing)?|schedul(e|ing)?|set|appointment|calendar|remind(er|ing)?|invite|plan|organize|sms|text|message|chat|reply|notify|ping|send|compose|today|tomorrow|soon|later|reschedul(e|ing)?)\b""",
                     RegexOption.IGNORE_CASE
                 )
 
@@ -140,18 +146,44 @@ class MessageHandler {
                         Log.d("MessageHandler", "SMS pattern matched: $prompt")
                         "sms"
                     }
+
                     questionWordsRegex.find(prompt) != null -> {
                         Log.d("MessageHandler", "Question word detected: $prompt")
                         "chat"
                     }
+
                     twoWordCallRegex.matches(prompt.trim()) -> {
                         Log.d("MessageHandler", "Two-word call pattern matched: $prompt")
-                        "call"
+                        val match = twoWordCallRegex.find(prompt.trim())!!
+                        val nameOrNumber = match.groupValues[2].trim()
+
+                        Log.d("MessageHandler", "Extracted name or number: '$nameOrNumber'")
+                        Toast.makeText(
+                            params.context,
+                            "Connecting Call Services",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        delay(500)
+
+                        val intentCall = IntentCall(params.context)
+                        val callSuccess = intentCall.initiateCall(nameOrNumber)
+                        params.messages[params.messages.lastIndex] = if (callSuccess) {
+                            "${params.assistantName}: Calling $nameOrNumber..."
+                        } else {
+                            "${params.assistantName}: Failed to call $nameOrNumber. Ensure the contact exists."
+                        }
+                        Log.d(
+                            "MessageHandler",
+                            "Call attempt for '$nameOrNumber' success: $callSuccess"
+                        )
+                        return@launch
                     }
+
                     calendarKeywordsRegex.containsMatchIn(prompt) -> {
                         Log.d("MessageHandler", "Calendar keywords matched: $prompt")
                         "calendar"
                     }
+
                     ambiguousWordsRegex.containsMatchIn(prompt) -> {
                         val intentPrompt = """
                             You are an Intent Classifier. Analyze the user prompt and determine the intent.
@@ -196,6 +228,7 @@ class MessageHandler {
                             }
                         responseBuilder.toString().trim().lowercase()
                     }
+
                     else -> {
                         Log.d("MessageHandler", "No ambiguous words found, defaulting to chat")
                         "chat"
@@ -207,29 +240,29 @@ class MessageHandler {
                     "sms" -> {
                         val smsPrompt = """
                         You are an SMS Extractor. Follow these rules exactly:
-                            1. The User Prompt describes an SMS request (e.g., "Text John Hello").
-                            2. Extract the contact name or number and the message content.
-                            3. Output MUST be in this format, with no additional text or explanations:
-                               Contact: <Name or Number>
-                               Message: <Content>
-                            4. Contact handling:
-                               - Extract the name or phone number following verbs like "sms", "text", or "message".
-                               - If a phone number is provided, keep it as is.
-                               - If a name is provided, use the exact name (e.g., "John", "my boss").
-                            5. Message handling:
-                               - Extract all text after the contact name/number as the message.
-                               - If no message content is provided, use an empty string.
-                            6. Do NOT include any other text, comments, or explanations.
-                            7. Examples:
-                               - Prompt: "Text John Hello there"
-                                 Contact: John
-                                 Message: Hello there
-                               - Prompt: "SMS +1234567890 Meeting at 5pm"
-                                 Contact: +1234567890
-                                 Message: Meeting at 5pm
-                               - Prompt: "Message Sarah"
-                                 Contact: Sarah
-                                 Message:
+                        1. The User Prompt describes an SMS request (e.g., "Text John Hello").
+                        2. Extract the contact name or number and the message content.
+                        3. Output MUST be in this format, with no additional text or explanations:
+                           Contact: <Name or Number>
+                           Message: <Message Content>
+                        4. Contact handling:
+                           - Extract the name or phone number following verbs like "sms", "text", or "message".
+                           - If a phone number is provided, keep it as is.
+                           - If a name is provided, use the exact name (e.g., "John", "my boss").
+                        5. Message handling:
+                           - Extract all text after the contact name/number as the message.
+                           - If no message content is provided, use an empty string.
+                        6. Do NOT include any other text, comments, or explanations.
+                        7. Examples:
+                           - Prompt: "Text John Hello there"
+                             Contact: John
+                             Message: Hello there
+                           - Prompt: "SMS +1234567890 Meeting at 5pm"
+                             Contact: +1234567890
+                             Message: Meeting at 5pm
+                           - Prompt: "Message Sarah asking Where are you"
+                             Contact: Sarah
+                             Message: Where are you
                         """.trimIndent()
 
                         val smsChatMessages = listOf(
@@ -280,6 +313,7 @@ class MessageHandler {
                             )
                         }
                     }
+
                     "call" -> {
                         val callPrompt = """
                         You are a Caller Name Extractor. Follow these rules exactly:
@@ -333,6 +367,7 @@ class MessageHandler {
                             )
                         }
                     }
+
                     "calendar" -> {
                         val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                         val calendar = Calendar.getInstance()
@@ -422,7 +457,10 @@ class MessageHandler {
                         )
                         val formattedCalendarPrompt =
                             formatChatTemplate(calendarChatMessages, addGenerationPrompt = true)
-                        Log.d("MessageHandler", "Formatted calendar prompt: $formattedCalendarPrompt")
+                        Log.d(
+                            "MessageHandler",
+                            "Formatted calendar prompt: $formattedCalendarPrompt"
+                        )
 
                         Toast.makeText(
                             params.context,
@@ -457,7 +495,8 @@ class MessageHandler {
                             time = time,
                             duration = duration
                         )
-                        val success = calendarIntent.insertEvent(event, params.selectedCalendarId.value)
+                        val success =
+                            calendarIntent.insertEvent(event, params.selectedCalendarId.value)
 
                         params.messages[params.messages.lastIndex] = if (success) {
                             "${params.assistantName}: Scheduled $title${date?.let { " on $it" } ?: ""}${time?.let { " at $it" } ?: ""}${duration?.let { " for $it minutes" } ?: ""}"
@@ -465,15 +504,28 @@ class MessageHandler {
                             "${params.assistantName}: Failed to schedule $title"
                         }
                     }
+
                     else -> {
+                        val contextItems = retryWithBackoff(3, 1000L) {
+                            ragHandler.retrieveRelevantContext(prompt, topK = 3)
+                        } ?: emptyList()
+                        val contextString = if (contextItems.isNotEmpty()) {
+                            contextItems.joinToString("\n") { "Context: $it" }
+                        } else {
+                            Log.d("MH", "No valid RAG context retrieved after retries")
+                            "No valid context found."
+                        }
+                        Log.d("MH", "Retrieved RAG context: $contextString")
+
                         val chatPrompt = """
-                        You are ${params.assistantName}, a helpful AI assistant to ${params.userName}. Follow these guidelines:
+                            You are ${params.assistantName}, a helpful AI assistant to user named ${params.userName}. Follow these guidelines:
                             - Be concise yet thorough
                             - Use clear, simple language
                             - Format responses neatly with proper spacing
                             - If unsure, say "I don't know" rather than guessing
-                            - For coding questions, provide complete examples
                             - Always maintain a helpful, professional tone
+                            - Use the following context to inform your response, if relevant:
+                            $contextString
                         """.trimIndent()
 
                         val chatMessages = messagesToPairs(
@@ -485,9 +537,12 @@ class MessageHandler {
                         if (chatMessages.none { it.first == "system" }) {
                             chatMessages.add(0, "system" to chatPrompt)
                         }
+
+                        Log.d("MessageHandler", "Chat Prompt: $chatPrompt\n User Msg: $prompt\n")
+
                         val formattedChatPrompt =
                             formatChatTemplate(chatMessages, addGenerationPrompt = true)
-                        Log.d("MessageHandler", "Formatted chat prompt: $formattedChatPrompt")
+
 
                         responseBuilder.clear()
                         params.llama.send(formattedChatPrompt, formatChat = true)
@@ -501,10 +556,12 @@ class MessageHandler {
                                         currentResponse != params.messages.lastOrNull()
                                             ?.removePrefix("${params.assistantName}: ")?.trim()
                                     ) {
-                                        val formattedResponse = currentResponse.replace("\n\n", "\n")
-                                        params.messages[params.messages.lastIndex] =
-                                            "${params.assistantName}: $formattedResponse"
-                                        Log.d("MessageHandler", "Updated chat response: $formattedResponse")
+                                        withContext(Dispatchers.Main) {
+                                            val formattedResponse =
+                                                currentResponse.replace("\n\n", "\n")
+                                            params.messages[params.messages.lastIndex] =
+                                                "${params.assistantName}: $formattedResponse"
+                                        }
                                     }
                                 }
                             }
@@ -515,9 +572,9 @@ class MessageHandler {
                 sendJob = null
                 Log.d("MessageHandler", "Sending finished")
             }
+            // Wait for the sendJob to complete or be canceled
+            sendJob?.join()
         }
-        // Wait for the sendJob to complete or be canceled
-        sendJob?.join()
     }
 
     fun pause(params: MessageHandlerParams) {
@@ -526,8 +583,25 @@ class MessageHandler {
         params.isGenerating.value = false
         params.messages.removeAll {
             it.startsWith("${params.assistantName}:") &&
-                (it.length < 10 || it.endsWith("...") || it == "${params.assistantName}: ")
+                    (it.length < 10 || it.endsWith("...") || it == "${params.assistantName}: ")
         }
         Log.d("MessageHandler", "Paused, cleaned partial responses")
     }
+}
+
+
+private suspend fun <T> retryWithBackoff(
+    maxAttempts: Int,
+    delayMs: Long,
+    block: suspend () -> T
+): T? {
+    repeat(maxAttempts) { attempt ->
+        try {
+            return block()
+        } catch (e: Exception) {
+            Log.d("MessageHandler", "Attempt ${attempt + 1} failed: ${e.message}")
+            if (attempt < maxAttempts - 1) delay(delayMs)
+        }
+    }
+    return null
 }
