@@ -85,6 +85,7 @@ fun MessageBubble(
         // Main bubble
         Box(
             modifier = Modifier
+                .widthIn(max = 300.dp) // Constrain maximum width
                 .background(bubbleColor, RoundedCornerShape(16.dp))
                 .padding(14.dp)
                 .align(Alignment.Center)
@@ -120,8 +121,7 @@ fun MessageBubble(
                                     fontFamily = FontFamily.SansSerif,
                                     fontWeight = FontWeight.Normal,
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 8.dp),
+                                        .padding(bottom = 8.dp), // Removed fillMaxWidth()
                                     softWrap = true,
                                     overflow = androidx.compose.ui.text.style.TextOverflow.Clip
                                 )
@@ -131,8 +131,7 @@ fun MessageBubble(
                                     language = segment.language ?: "Code",
                                     code = segment.code,
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 8.dp)
+                                        .padding(bottom = 8.dp) // Removed fillMaxWidth()
                                 )
                             }
                         }
@@ -274,8 +273,7 @@ fun CodeBlock(
         // Header with language and copy button
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                .padding(horizontal = 8.dp, vertical = 4.dp), // Removed fillMaxWidth()
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -326,8 +324,8 @@ fun CodeBlock(
                 textAlign = TextAlign.Start
             ),
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .padding(horizontal = 8.dp, vertical = 4.dp), // Removed fillMaxWidth()
+            softWrap = true
         )
     }
 }
