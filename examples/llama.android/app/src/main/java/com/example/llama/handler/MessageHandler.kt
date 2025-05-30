@@ -97,6 +97,12 @@ class MessageHandler {
             return@coroutineScope
         }
 
+        // Initialize ragHandler if not already initialized
+        if (!this@MessageHandler::ragHandler.isInitialized) {
+            ragHandler = RAGHandler(params.context)
+        }
+
+
         Log.d("MessageHandler", "Sending prompt: $prompt")
         params.isGenerating.value = true
         params.messages.add("${params.userName}: $prompt")
