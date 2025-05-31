@@ -573,14 +573,17 @@ class MessageHandler {
                             }
                     }
                 }
-            } finally {
-                params.isGenerating.value = false
-                sendJob = null
-                Log.d("MessageHandler", "Sending finished")
+            }finally{
+                Log.d("MessageHandler", "In the CoroutineScope")
             }
-            // Wait for the sendJob to complete or be canceled
-            sendJob?.join()
         }
+
+        // Wait for the sendJob to comp     lete or be canceled
+        sendJob?.join()
+
+        params.isGenerating.value = false
+        sendJob = null
+        Log.d("MessageHandler", "Sending finished")
     }
 
     fun pause(params: MessageHandlerParams) {
