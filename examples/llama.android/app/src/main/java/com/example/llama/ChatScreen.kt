@@ -52,6 +52,8 @@ import android.content.ClipData
 import android.content.Context
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import com.example.llama.MainViewModel.RagDbState
+import com.example.llama.MainViewModel.RagDbState.selectedRagDbIndex
 
 private fun getModelFileName(modelName: String): String {
     return "${modelName.lowercase().replace(" ", "_")}.gguf"
@@ -335,107 +337,174 @@ fun ChatScreen(
                         .windowInsetsPadding(WindowInsets.navigationBars),
                     shadowElevation = 8.dp
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
                                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
                                 RoundedCornerShape(24.dp)
                             )
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
-                        TextField(
-                            value = viewModel.message.value,
-                            onValueChange = { newValue -> viewModel.message.value = newValue },
+                        Row(
                             modifier = Modifier
-                                .weight(1f)
                                 .fillMaxWidth(),
-                            textStyle = TextStyle(
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onBackground
-                            ),
-                            placeholder = {
-                                Text(
-                                    "Ask anything",
-                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                                    fontSize = 14.sp
-                                )
-                            },
-                            colors = TextFieldDefaults.colors(
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                disabledIndicatorColor = Color.Transparent,
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                disabledContainerColor = Color.Transparent
-                            )
-                        )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        IconButton(
-                            onClick = {
-                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                                intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak something...")
-                                try {
-                                    launcher.launch(intent)
-                                } catch (e: ActivityNotFoundException) {
-                                    Toast.makeText(context, "Speech recognition not supported", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            enabled = !isGenerating && chatLoadingState !is ChatLoadingState.Loading
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                Icons.Filled.Mic,
-                                contentDescription = "Voice Input",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(30.dp)
-                            )
-                        }
-
-                        if (isGenerating) {
-                            IconButton(
-                                onClick = { viewModel.pause() },
-                                enabled = true
-                            ) {
-                                Icon(
-                                    Icons.Filled.Pause,
-                                    contentDescription = "Pause",
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.size(30.dp)
+                            TextField(
+                                value = viewModel.message.value,
+                                onValueChange = { newValue -> viewModel.message.value = newValue },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth(),
+                                textStyle = TextStyle(
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                ),
+                                placeholder = {
+                                    Text(
+                                        "Ask anything",
+                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                        fontSize = 14.sp
+                                    )
+                                },
+                                colors = TextFieldDefaults.colors(
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                    disabledIndicatorColor = Color.Transparent,
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    disabledContainerColor = Color.Transparent
                                 )
-                            }
-                        } else if (viewModel.message.value.isNotBlank()) {
+                            )
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
                             IconButton(
                                 onClick = {
-                                    Log.d("ChatScreen", "Sending message: ${viewModel.message.value}")
-                                    viewModel.send(viewModel.message.value)
-                                    viewModel.message.value = ""
-                                    focusManager.clearFocus()
+                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                                    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                                    intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak something...")
+                                    try {
+                                        launcher.launch(intent)
+                                    } catch (e: ActivityNotFoundException) {
+                                        Toast.makeText(context, "Speech recognition not supported", Toast.LENGTH_SHORT).show()
+                                    }
                                 },
-                                enabled = !isGenerating && viewModel.message.value.isNotBlank() && chatLoadingState !is ChatLoadingState.Loading
-                            ) {
-                                Icon(
-                                    Icons.Filled.ArrowUpward,
-                                    contentDescription = "Send",
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.size(30.dp)
-                                )
-                            }
-                        } else {
-                            IconButton(
-                                onClick = { navController.navigate("talkWithAI") },
                                 enabled = !isGenerating && chatLoadingState !is ChatLoadingState.Loading
                             ) {
                                 Icon(
-                                    Icons.Filled.GraphicEq,
-                                    contentDescription = "Talk with AI",
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    Icons.Filled.Mic,
+                                    contentDescription = "Voice Input",
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(30.dp)
                                 )
+                            }
+
+                            if (isGenerating) {
+                                IconButton(
+                                    onClick = { viewModel.pause() },
+                                    enabled = true
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Pause,
+                                        contentDescription = "Pause",
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(30.dp)
+                                    )
+                                }
+                            } else if (viewModel.message.value.isNotBlank()) {
+                                IconButton(
+                                    onClick = {
+                                        Log.d("ChatScreen", "Sending message: ${viewModel.message.value}")
+                                        viewModel.send(viewModel.message.value)
+                                        viewModel.message.value = ""
+                                        focusManager.clearFocus()
+                                    },
+                                    enabled = !isGenerating && viewModel.message.value.isNotBlank() && chatLoadingState !is ChatLoadingState.Loading
+                                ) {
+                                    Icon(
+                                        Icons.Filled.ArrowUpward,
+                                        contentDescription = "Send",
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(30.dp)
+                                    )
+                                }
+                            } else {
+                                IconButton(
+                                    onClick = { navController.navigate("talkWithAI") },
+                                    enabled = !isGenerating && chatLoadingState !is ChatLoadingState.Loading
+                                ) {
+                                    Icon(
+                                        Icons.Filled.GraphicEq,
+                                        contentDescription = "Talk with AI",
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(30.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // RAG Button and Drop-up Menu
+                        var showRagMenu by remember { mutableStateOf(false) }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Button(
+                                onClick = {
+                                    if (RagDbState.selectedRagDbIndex.value != 0) {
+                                        RagDbState.selectedRagDbIndex.value = 0
+                                        showRagMenu = false
+                                        Log.d("ChatScreen", "RAG toggled to off state (index: 0)")
+                                    } else {
+                                        showRagMenu = !showRagMenu
+                                    }
+                                },
+                                modifier = Modifier
+                                    .height(36.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (RagDbState.selectedRagDbIndex.value == 0)
+                                        Color.Gray
+                                    else
+                                        MaterialTheme.colorScheme.primary,
+                                    contentColor = if (RagDbState.selectedRagDbIndex.value == 0)
+                                        Color.White
+                                    else
+                                        MaterialTheme.colorScheme.onPrimary
+                                )
+                            ) {
+                                Text(
+                                    text = "RAG: ${
+                                        if (RagDbState.selectedRagDbIndex.value == 0)
+                                            "Off"
+                                        else
+                                            RagDbState.ragDbMap.value[RagDbState.selectedRagDbIndex.value]?.removeSuffix(".db") ?: "Select DB"
+                                    }",
+                                    fontSize = 14.sp
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showRagMenu,
+                                onDismissRequest = { showRagMenu = false },
+                                modifier = Modifier
+                                    .background(MaterialTheme.colorScheme.surface)
+                            ) {
+                                RagDbState.ragDbMap.value.filter { it.key != 0 }.forEach { (index, dbName) ->
+                                    DropdownMenuItem(
+                                        text = { Text(dbName.removeSuffix(".db"), fontSize = 14.sp) },
+                                        onClick = {
+                                            RagDbState.selectedRagDbIndex.value = index
+                                            showRagMenu = false
+                                            Log.d("ChatScreen", "Selected RAG DB: $dbName (index: $index)")
+                                        }
+                                    )
+                                }
                             }
                         }
                     }

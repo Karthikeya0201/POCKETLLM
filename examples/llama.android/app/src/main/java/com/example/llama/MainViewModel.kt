@@ -39,6 +39,19 @@ class MainViewModel(private val context: Context) : ViewModel() {
     val showImportSuccess = mutableStateOf(false)
     val calendarList = mutableStateOf<List<Pair<Long, String>>>(emptyList())
     val selectedCalendarId = mutableStateOf<Long?>(null)
+
+    object RagDbState {
+        val ragDbMap: MutableState<Map<Int, String>> = mutableStateOf(
+            mapOf(
+                0 to "nothing",
+                1 to "AgriQA.db",
+                2 to "MediQA.db",
+                3 to "TechQA.db"
+            )
+        )
+        val selectedRagDbIndex: MutableState<Int> = mutableStateOf(0)
+    }
+
     private lateinit var chatsDir: File
     private val llama = LLamaAndroid.instance().apply {
         setContextSize(2048)

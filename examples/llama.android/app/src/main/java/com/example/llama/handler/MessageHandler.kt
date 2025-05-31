@@ -20,6 +20,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlinx.coroutines.isActive
+import com.example.llama.MainViewModel.RagDbState.selectedRagDbIndex
 
 data class MessageHandlerParams(
     val context: Context,
@@ -534,27 +535,47 @@ class MessageHandler {
                     }
 
                     else -> {
-                        val contextItems = retryWithBackoff(3, 1000L) {
-                            ragHandler.retrieveRelevantContext(prompt, topK = 3)
-                        } ?: emptyList()
-                        val contextString = if (contextItems.isNotEmpty()) {
-                            contextItems.joinToString("\n") { "Context: $it" }
-                        } else {
-                            Log.d("MH", "No valid RAG context retrieved after retries")
-                            "No valid context found."
-                        }
-                        Log.d("MH", "Retrieved RAG context: $contextString")
+                        val context: String?
+                        val additionalInstructions: String?
 
-                        val chatPrompt = """
-                            You are ${params.assistantName}, a helpful AI assistant to user named ${params.userName}. Follow these guidelines:
-                            - Be concise yet thorough
-                            - Use clear, simple language
-                            - Format responses neatly with proper spacing
-                            - If unsure, say "I don't know" rather than guessing
-                            - Always maintain a helpful, professional tone
-                            - Use the following context to inform your response, if relevant:
-                            $contextString
-                        """.trimIndent()
+                        if (selectedRagDbIndex.value != 0) {
+                            val contextItems = retryWithBackoff(3, 1000L) {
+                                ragHandler.retrieveRelevantContext(prompt, topK = 3)
+                            } ?: emptyList()
+
+                            context = if (contextItems.isNotEmpty()) {
+                                contextItems.joinToString("\n") { "Context: $it" }
+                            } else {
+                                Log.d("MH", "No valid RAG context retrieved after retries")
+                                "No valid context found."
+                            }
+
+                            Log.d("MH", "Retrieved RAG context: $context")
+
+                            additionalInstructions =
+                                "Use the following context to inform your response, if relevant:"
+                        } else {
+                            context = null
+                            additionalInstructions = null
+                        }
+
+                        var chatPrompt = """
+                                You are ${params.assistantName}, a helpful AI assistant to user named ${params.userName}. Follow these guidelines:
+                                - Be concise yet thorough
+                                - Use clear, simple language
+                                - Format responses neatly with proper spacing
+                                - If unsure, say "I don't know" rather than guessing
+                                - Always maintain a helpful, professional tone
+                            """.trimIndent()
+
+                        if (!additionalInstructions.isNullOrBlank()) {
+                            chatPrompt += "\n\n$additionalInstructions"
+                        }
+
+                        if (!context.isNullOrBlank()) {
+                            chatPrompt += "\n$context"
+                        }
+
 
                         val chatMessages = messagesToPairs(
                             params.messages.dropLast(1),
@@ -611,7 +632,7 @@ class MessageHandler {
         params.isGenerating.value = false
         params.messages.removeAll {
             it.startsWith("${params.assistantName}:") &&
-                    (it.length < 10 || it.endsWith("...") || it == "${params.assistantName}: ")
+                (it.length < 10 || it.endsWith("...") || it == "${params.assistantName}: ")
         }
         Log.d("MessageHandler", "Paused, cleaned partial responses")
     }
