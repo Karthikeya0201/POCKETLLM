@@ -50,10 +50,11 @@ import androidx.compose.ui.graphics.TileMode
 import java.io.File
 import android.content.ClipData
 import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.pointer.pointerInput
 import com.example.llama.MainViewModel.RagDbState
-import com.example.llama.MainViewModel.RagDbState.selectedRagDbIndex
 
 private fun getModelFileName(modelName: String): String {
     return "${modelName.lowercase().replace(" ", "_")}.gguf"
@@ -334,8 +335,15 @@ fun ChatScreen(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .windowInsetsPadding(WindowInsets.navigationBars),
-                    shadowElevation = 8.dp
+                        .padding(horizontal = 8.dp)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(24.dp)
+                        ),
+                    shadowElevation = 0.dp,
+                    shape = RoundedCornerShape(24.dp)
                 ) {
                     Column(
                         modifier = Modifier
@@ -346,17 +354,24 @@ fun ChatScreen(
                             )
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
-                        Row(
+                        // Input Field
+                        Surface(
                             modifier = Modifier
-                                .fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                                .fillMaxWidth()
+                                .border(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(20.dp) // 24.dp - 4.dp = 20.dp
+                                ),
+                            color = Color.White, // Inner box white background
+                            shape = RoundedCornerShape(20.dp)
                         ) {
                             TextField(
                                 value = viewModel.message.value,
                                 onValueChange = { newValue -> viewModel.message.value = newValue },
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth(),
+                                    .fillMaxWidth()
+                                    .padding(top = 6.dp, start = 1.dp, end = 1.dp),
                                 textStyle = TextStyle(
                                     fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onBackground
@@ -377,133 +392,205 @@ fun ChatScreen(
                                     disabledContainerColor = Color.Transparent
                                 )
                             )
+                        }
 
-                            Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                            IconButton(
-                                onClick = {
-                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                                    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                                    intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak something...")
-                                    try {
-                                        launcher.launch(intent)
-                                    } catch (e: ActivityNotFoundException) {
-                                        Toast.makeText(context, "Speech recognition not supported", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                enabled = !isGenerating && chatLoadingState !is ChatLoadingState.Loading
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            // RAG Button and Drop-up Menu
+                            var showRagMenu by remember { mutableStateOf(false) }
+                            val ragButtonHorizontalPadding = 0.dp
+                            Box(
+                                modifier = Modifier
+                                    .wrapContentSize(),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    Icons.Filled.Mic,
-                                    contentDescription = "Voice Input",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(30.dp)
-                                )
+                                Button(
+                                    onClick = {
+                                        if (RagDbState.selectedRagDbIndex.value != 0) {
+                                            RagDbState.selectedRagDbIndex.value = 0
+                                            showRagMenu = false
+                                            Log.d("ChatScreen", "RAG toggled to off state (index: 0)")
+                                        } else {
+                                            showRagMenu = !showRagMenu
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .height(32.dp)
+                                        .padding(horizontal = ragButtonHorizontalPadding),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(
+                                        width = 1.dp,
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                    ),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (RagDbState.selectedRagDbIndex.value == 0)
+                                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                                        else
+                                            MaterialTheme.colorScheme.primary,
+                                        contentColor = if (RagDbState.selectedRagDbIndex.value == 0)
+                                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f)
+                                        else
+                                            Color.White
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp) // Minimal padding inside the button
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Image(
+                                            painter = painterResource(id = R.drawable.database_search),
+                                            contentDescription = "Database Search",
+                                            modifier = Modifier
+                                                .size(20.dp)
+                                                .padding(end = 1.dp), // Very minimal padding
+                                            colorFilter = ColorFilter.tint(
+                                                if (RagDbState.selectedRagDbIndex.value == 0)
+                                                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f)
+                                                else
+                                                    Color.White
+                                            )
+                                        )
+                                        Text(
+                                            text = if (RagDbState.selectedRagDbIndex.value == 0)
+                                                "RAG"
+                                            else
+                                                RagDbState.ragDbMap.value[RagDbState.selectedRagDbIndex.value]?.removeSuffix(".db") ?: "Select DB",
+                                            fontSize = 14.sp,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = if (RagDbState.selectedRagDbIndex.value == 0)
+                                                MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f)
+                                            else
+                                                Color.White
+                                        )
+                                    }
+                                }
+
+                                DropdownMenu(
+                                    expanded = showRagMenu,
+                                    onDismissRequest = { showRagMenu = false },
+                                    modifier = Modifier
+                                        .background(
+                                            color = Color.White, // Pure white background
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .border(
+                                            width = 1.dp,
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .padding(vertical = 4.dp)
+                                ) {
+                                    RagDbState.ragDbMap.value.filter { it.key != 0 }.forEach { (index, dbName) ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = dbName.removeSuffix(".db"),
+                                                    fontSize = 14.sp,
+                                                    color = if (RagDbState.selectedRagDbIndex.value == index)
+                                                        MaterialTheme.colorScheme.primary
+                                                    else
+                                                        MaterialTheme.colorScheme.onSurface,
+                                                    fontWeight = if (RagDbState.selectedRagDbIndex.value == index)
+                                                        FontWeight.Bold
+                                                    else
+                                                        FontWeight.Normal,
+                                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                                )
+                                            },
+                                            onClick = {
+                                                RagDbState.selectedRagDbIndex.value = index
+                                                showRagMenu = false
+                                                Log.d("ChatScreen", "Selected RAG DB: $dbName (index: $index)")
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(
+                                                    if (RagDbState.selectedRagDbIndex.value == index)
+                                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                                    else if (showRagMenu)
+                                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                                                    else
+                                                        Color.Transparent
+                                                )
+                                        )
+                                    }
+                                }
                             }
 
-                            if (isGenerating) {
-                                IconButton(
-                                    onClick = { viewModel.pause() },
-                                    enabled = true
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Pause,
-                                        contentDescription = "Pause",
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.size(30.dp)
-                                    )
-                                }
-                            } else if (viewModel.message.value.isNotBlank()) {
+                            // Voice and Talk buttons
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 IconButton(
                                     onClick = {
-                                        Log.d("ChatScreen", "Sending message: ${viewModel.message.value}")
-                                        viewModel.send(viewModel.message.value)
-                                        viewModel.message.value = ""
-                                        focusManager.clearFocus()
+                                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                                        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toString())
+                                        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak something...")
+                                        try {
+                                            launcher.launch(intent)
+                                        } catch (e: ActivityNotFoundException) {
+                                            Toast.makeText(context, "Speech recognition not supported", Toast.LENGTH_SHORT).show()
+                                        }
                                     },
-                                    enabled = !isGenerating && viewModel.message.value.isNotBlank() && chatLoadingState !is ChatLoadingState.Loading
-                                ) {
-                                    Icon(
-                                        Icons.Filled.ArrowUpward,
-                                        contentDescription = "Send",
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.size(30.dp)
-                                    )
-                                }
-                            } else {
-                                IconButton(
-                                    onClick = { navController.navigate("talkWithAI") },
                                     enabled = !isGenerating && chatLoadingState !is ChatLoadingState.Loading
                                 ) {
                                     Icon(
-                                        Icons.Filled.GraphicEq,
-                                        contentDescription = "Talk with AI",
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        imageVector = Icons.Filled.Mic,
+                                        contentDescription = "Voice Input",
+                                        tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(30.dp)
                                     )
                                 }
-                            }
-                        }
 
-                        // RAG Button and Drop-up Menu
-                        var showRagMenu by remember { mutableStateOf(false) }
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Button(
-                                onClick = {
-                                    if (RagDbState.selectedRagDbIndex.value != 0) {
-                                        RagDbState.selectedRagDbIndex.value = 0
-                                        showRagMenu = false
-                                        Log.d("ChatScreen", "RAG toggled to off state (index: 0)")
-                                    } else {
-                                        showRagMenu = !showRagMenu
+                                if (isGenerating) {
+                                    IconButton(
+                                        onClick = { viewModel.pause() },
+                                        enabled = true
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Pause,
+                                            contentDescription = "Pause",
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.size(30.dp)
+                                        )
                                     }
-                                },
-                                modifier = Modifier
-                                    .height(36.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (RagDbState.selectedRagDbIndex.value == 0)
-                                        Color.Gray
-                                    else
-                                        MaterialTheme.colorScheme.primary,
-                                    contentColor = if (RagDbState.selectedRagDbIndex.value == 0)
-                                        Color.White
-                                    else
-                                        MaterialTheme.colorScheme.onPrimary
-                                )
-                            ) {
-                                Text(
-                                    text = "RAG: ${
-                                        if (RagDbState.selectedRagDbIndex.value == 0)
-                                            "Off"
-                                        else
-                                            RagDbState.ragDbMap.value[RagDbState.selectedRagDbIndex.value]?.removeSuffix(".db") ?: "Select DB"
-                                    }",
-                                    fontSize = 14.sp
-                                )
-                            }
-
-                            DropdownMenu(
-                                expanded = showRagMenu,
-                                onDismissRequest = { showRagMenu = false },
-                                modifier = Modifier
-                                    .background(MaterialTheme.colorScheme.surface)
-                            ) {
-                                RagDbState.ragDbMap.value.filter { it.key != 0 }.forEach { (index, dbName) ->
-                                    DropdownMenuItem(
-                                        text = { Text(dbName.removeSuffix(".db"), fontSize = 14.sp) },
+                                } else if (viewModel.message.value.isNotBlank()) {
+                                    IconButton(
                                         onClick = {
-                                            RagDbState.selectedRagDbIndex.value = index
-                                            showRagMenu = false
-                                            Log.d("ChatScreen", "Selected RAG DB: $dbName (index: $index)")
-                                        }
-                                    )
+                                            Log.d("ChatScreen", "Sending message: ${viewModel.message.value}")
+                                            viewModel.send(viewModel.message.value)
+                                            viewModel.message.value = ""
+                                            focusManager.clearFocus()
+                                        },
+                                        enabled = !isGenerating && viewModel.message.value.isNotBlank() && chatLoadingState !is ChatLoadingState.Loading
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.ArrowUpward,
+                                            contentDescription = "Send",
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.size(30.dp)
+                                        )
+                                    }
+                                } else {
+                                    IconButton(
+                                        onClick = { navController.navigate("talkWithAI") },
+                                        enabled = !isGenerating && chatLoadingState !is ChatLoadingState.Loading
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.GraphicEq,
+                                            contentDescription = "Talk with AI",
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.size(30.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
