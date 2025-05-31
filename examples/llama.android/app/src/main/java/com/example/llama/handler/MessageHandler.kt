@@ -552,8 +552,12 @@ class MessageHandler {
 
                             Log.d("MH", "Retrieved RAG context: $context")
 
-                            additionalInstructions =
-                                "Use the following context to inform your response, if relevant:"
+                            additionalInstructions ="""
+                                Use the following context to inform your response **if relevant**.
+                                Prioritize relevant context when answering, but feel free to use your own knowledge if the context is incomplete or unrelated.
+                                Do not rely solely on the context—combine it with your understanding to provide the most helpful and accurate answer possible.
+                            """.trimIndent()
+
                         } else {
                             context = null
                             additionalInstructions = null
@@ -569,7 +573,7 @@ class MessageHandler {
                             """.trimIndent()
 
                         if (!additionalInstructions.isNullOrBlank()) {
-                            chatPrompt += "\n\n$additionalInstructions"
+                            chatPrompt += "\n$additionalInstructions"
                         }
 
                         if (!context.isNullOrBlank()) {
