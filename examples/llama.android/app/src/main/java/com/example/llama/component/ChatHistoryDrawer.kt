@@ -460,77 +460,212 @@ fun generateChatPdf(context: android.content.Context, chatId: String, messages: 
         return lines
     }
 
+    fun calculateSegmentHeight(segment: MessageSegment, maxWidth: Float): Float {
+        return when (segment) {
+            is MessageSegment.TextSegment -> {
+                val layout = StaticLayout(
+                    segment.content,
+                    textPaint,
+                    (maxWidth - 2 * bubblePadding).toInt(),
+                    Layout.Alignment.ALIGN_NORMAL,
+                    1.2f,
+                    3.0f,
+                    false
+                )
+                layout.height.toFloat() + 8f // 8f for bottom spacing
+            }
+            is MessageSegment.CodeSegment -> {
+                val languagePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    textSize = 8f
+                    typeface = Typeface.SERIF
+                    color = Color.GRAY
+                }
+                val codeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    textSize = 8f
+                    typeface = Typeface.MONOSPACE
+                    color = Color.BLACK
+                }
+                val codeLayout = StaticLayout(
+                    segment.code,
+                    codeTextPaint,
+                    (maxWidth - 4 * bubblePadding).toInt(), // Extra padding for code block
+                    Layout.Alignment.ALIGN_NORMAL,
+                    1.2f,
+                    3.0f,
+                    false
+                )
+                val languageHeight = languagePaint.getFontSpacing()
+                val horizontalLineHeight = 5f // Increased line height
+                val codeBlockPadding = 15f
+                // Total: language header + padding + line + padding + code content + padding + bottom spacing
+                languageHeight + codeBlockPadding + horizontalLineHeight + codeBlockPadding + codeLayout.height.toFloat() + codeBlockPadding + 8f
+            }
+        }
+    }
+
     drawPageHeader(canvas)
 
     messages.forEachIndexed { index, message ->
         val timestamp = timeFormat.format(Date(System.currentTimeMillis() + index * 60000))
         val isUserMessage = index % 2 == 0
-        val cleanMessage = message.trim()
 
-        Log.d("ChatHistoryDrawer", "Message $index: $message, isUserMessage: $isUserMessage")
+        // Parse the message into segments (text or code)
+        val segments = parseMessageSegments(message.trim())
 
-        var lines = wrapText(cleanMessage, paint, maxBubbleWidth - 2 * bubblePadding)
-        var lineIndex = 0
-        while (lineIndex < lines.size) {
-            val remainingHeight = (pageInfo.pageHeight - borderMargin) - yPosition
-            val maxLines = ((remainingHeight - 2 * bubblePadding - (if (lineIndex == 0) timestampHeight else 0f)) / lineHeight).toInt().coerceAtLeast(1)
-            val linesForBubble = lines.subList(lineIndex, minOf(lineIndex + maxLines, lines.size))
-            val text = linesForBubble.joinToString("\n")
-            val layout = StaticLayout(text, textPaint, (maxBubbleWidth - 2 * bubblePadding).toInt(), Layout.Alignment.ALIGN_NORMAL, 1.2f, 3.0f, false)
-            val contentHeightBubble = layout.height.toFloat()
-            val extraHeight = if (lineIndex == 0) timestampHeight else 0f
-            val bubbleHeight = contentHeightBubble + 2 * bubblePadding + extraHeight
+        // Calculate total height needed for all segments in this message
+        val segmentsHeight = segments.sumOf { segment ->
+            calculateSegmentHeight(segment, maxBubbleWidth).toDouble()
+        }.toFloat()
 
-            if (yPosition + bubbleHeight > pageInfo.pageHeight - borderMargin) {
-                drawPageNumber(canvas, pageNumber)
-                document.finishPage(page)
-                pageNumber++
-                page = document.startPage(PdfDocument.PageInfo.Builder(595, 842, pageNumber).create())
-                canvas = page.canvas
-                paint.textSize = 8f
-                paint.typeface = Typeface.SERIF
-                paint.style = Paint.Style.FILL
-                drawPageHeader(canvas)
-                yPosition = if (pageNumber == 1) borderMargin + 170f else borderMargin + 100f
-                continue
-            }
+        val totalBubbleHeight = segmentsHeight + 2 * bubblePadding + timestampHeight
 
-            val contentWidthLayout = layout.width.toFloat()
-            val timestampWidth = if (lineIndex == 0) textPaint.measureText(timestamp) else 0f
-            val maxContentWidth = maxOf(contentWidthLayout, timestampWidth)
-            val bubbleWidth = maxContentWidth + 2 * bubblePadding
-            val left = if (isUserMessage) borderMargin + contentWidth - bubbleWidth - 20f else borderMargin + 20f
-            val right = left + bubbleWidth
-            val top = yPosition
-            val bottom = yPosition + bubbleHeight
-            val bubbleRect = RectF(left, top, right, bottom)
-            paint.color = if (isUserMessage) Color.parseColor("#F1F8E9") else Color.parseColor("#E0F7FA")
-            canvas.drawRoundRect(bubbleRect, bubbleRadius, bubbleRadius, paint)
-            val tailPath = Path()
-            if (isUserMessage) {
-                tailPath.moveTo(bubbleRect.right - bubbleRadius, bubbleRect.bottom - bubbleRadius)
-                tailPath.lineTo(bubbleRect.right + 10f, bubbleRect.bottom)
-                tailPath.lineTo(bubbleRect.right - bubbleRadius, bubbleRect.bottom)
-            } else {
-                tailPath.moveTo(bubbleRect.left + bubbleRadius, bubbleRect.bottom - bubbleRadius)
-                tailPath.lineTo(bubbleRect.left - 10f, bubbleRect.bottom)
-                tailPath.lineTo(bubbleRect.left + bubbleRadius, bubbleRect.bottom)
-            }
-            tailPath.close()
-            canvas.drawPath(tailPath, paint)
-            if (lineIndex == 0) {
-                textPaint.color = Color.GRAY
-                canvas.drawText(timestamp, bubbleRect.left + bubblePadding, yPosition + bubblePadding + 12f, textPaint)
-                textPaint.color = Color.BLACK
-            }
-            val startY = yPosition + bubblePadding + (if (lineIndex == 0) timestampHeight else 0f)
-            canvas.save()
-            canvas.translate(bubbleRect.left + bubblePadding, startY)
-            layout.draw(canvas)
-            canvas.restore()
-            yPosition += bubbleHeight + 30f
-            lineIndex += linesForBubble.size
+        // Check if entire message bubble fits on current page
+        if (yPosition + totalBubbleHeight > pageInfo.pageHeight - borderMargin) {
+            drawPageNumber(canvas, pageNumber)
+            document.finishPage(page)
+            pageNumber++
+            page = document.startPage(PdfDocument.PageInfo.Builder(595, 842, pageNumber).create())
+            canvas = page.canvas
+            paint.textSize = 8f
+            paint.typeface = Typeface.SERIF
+            paint.style = Paint.Style.FILL
+            drawPageHeader(canvas)
+            yPosition = if (pageNumber == 1) borderMargin + 170f else borderMargin + 100f
         }
+
+        // Calculate bubble dimensions
+        val bubbleWidth = maxBubbleWidth
+        val left = if (isUserMessage) borderMargin + contentWidth - bubbleWidth - 20f else borderMargin + 20f
+        val right = left + bubbleWidth
+        val top = yPosition
+        val bottom = yPosition + totalBubbleHeight
+        val bubbleRect = RectF(left, top, right, bottom)
+
+        // Draw main message bubble background - Fixed AI message color to light purple
+        paint.color = if (isUserMessage) Color.parseColor("#F1F8E9") else Color.parseColor("#E6E6FA") // Light purple for AI
+        paint.style = Paint.Style.FILL
+        canvas.drawRoundRect(bubbleRect, bubbleRadius, bubbleRadius, paint)
+
+        // Draw the tail
+        val tailPath = Path()
+        if (isUserMessage) {
+            tailPath.moveTo(bubbleRect.right - bubbleRadius, bubbleRect.bottom - bubbleRadius)
+            tailPath.lineTo(bubbleRect.right + 10f, bubbleRect.bottom)
+            tailPath.lineTo(bubbleRect.right - bubbleRadius, bubbleRect.bottom)
+        } else {
+            tailPath.moveTo(bubbleRect.left + bubbleRadius, bubbleRect.bottom - bubbleRadius)
+            tailPath.lineTo(bubbleRect.left - 10f, bubbleRect.bottom)
+            tailPath.lineTo(bubbleRect.left + bubbleRadius, bubbleRect.bottom)
+        }
+        tailPath.close()
+        canvas.drawPath(tailPath, paint)
+
+        // Draw timestamp
+        textPaint.color = Color.GRAY
+        canvas.drawText(timestamp, bubbleRect.left + bubblePadding, yPosition + bubblePadding + 12f, textPaint)
+        textPaint.color = Color.BLACK
+
+        // Draw all segments within the bubble
+        var currentY = yPosition + bubblePadding + timestampHeight
+
+        segments.forEach { segment ->
+            when (segment) {
+                is MessageSegment.TextSegment -> {
+                    val layout = StaticLayout(
+                        segment.content,
+                        textPaint,
+                        (maxBubbleWidth - 2 * bubblePadding).toInt(),
+                        Layout.Alignment.ALIGN_NORMAL,
+                        1.2f,
+                        3.0f,
+                        false
+                    )
+
+                    canvas.save()
+                    canvas.translate(bubbleRect.left + bubblePadding, currentY)
+                    layout.draw(canvas)
+                    canvas.restore()
+
+                    currentY += layout.height.toFloat() + 8f // Add spacing after text
+                }
+                is MessageSegment.CodeSegment -> {
+                    val language = segment.language ?: "Code"
+                    val code = segment.code
+
+                    // Code block styling
+                    val codeBlockBackground = Color.parseColor("#F5F5F5") // White background
+                    val codeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                        textSize = 8f
+                        typeface = Typeface.MONOSPACE
+                        color = Color.BLACK
+                    }
+                    val languagePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                        textSize = 8f
+                        typeface = Typeface.SERIF
+                        color = Color.GRAY
+                    }
+                    val codeBlockPadding = 15f
+                    val horizontalLineHeight = 5f // Increased line height for better visibility
+                    val codeBlockRadius = 8f
+
+                    // Calculate code block dimensions
+                    val codeLayout = StaticLayout(
+                        code,
+                        codeTextPaint,
+                        (maxBubbleWidth - 4 * bubblePadding).toInt(), // Extra padding for code block within bubble
+                        Layout.Alignment.ALIGN_NORMAL,
+                        1.2f,
+                        3.0f,
+                        false
+                    )
+                    val languageHeight = languagePaint.getFontSpacing()
+                    val codeBlockHeight = languageHeight + codeBlockPadding + horizontalLineHeight + codeBlockPadding + codeLayout.height.toFloat() + codeBlockPadding
+
+                    // Code block rectangle within the message bubble
+                    val codeBlockRect = RectF(
+                        bubbleRect.left + bubblePadding,
+                        currentY,
+                        bubbleRect.right - bubblePadding,
+                        currentY + codeBlockHeight
+                    )
+
+                    // Draw code block background
+                    paint.color = codeBlockBackground
+                    canvas.drawRoundRect(codeBlockRect, codeBlockRadius, codeBlockRadius, paint)
+
+                    // Draw language header
+                    canvas.drawText(
+                        language,
+                        codeBlockRect.left + codeBlockPadding,
+                        currentY + languageHeight - 2f,
+                        languagePaint
+                    )
+                    currentY += languageHeight + codeBlockPadding
+
+                    // Draw horizontal line (matching main bubble color) - FIXED: Properly divide the sections
+                    paint.color = if (isUserMessage) Color.parseColor("#F1F8E9") else Color.parseColor("#E6E6FA") // Match bubble color
+                    paint.style = Paint.Style.FILL
+                    canvas.drawRect(
+                        codeBlockRect.left, // Start from left edge of code block
+                        currentY,
+                        codeBlockRect.right, // End at right edge of code block
+                        currentY + horizontalLineHeight,
+                        paint
+                    )
+                    currentY += horizontalLineHeight + codeBlockPadding
+
+                    // Draw code content
+                    canvas.save()
+                    canvas.translate(codeBlockRect.left + codeBlockPadding, currentY)
+                    codeLayout.draw(canvas)
+                    canvas.restore()
+
+                    currentY += codeLayout.height.toFloat() + codeBlockPadding + 8f // Add spacing after code block
+                }
+            }
+        }
+
+        yPosition += totalBubbleHeight + 30f // Space between message bubbles
     }
 
     drawPageNumber(canvas, pageNumber)

@@ -187,7 +187,7 @@ sealed class MessageSegment {
  * @param text The input message text.
  * @return List of [MessageSegment] (TextSegment or CodeSegment).
  */
-private fun parseMessageSegments(text: String): List<MessageSegment> {
+fun parseMessageSegments(text: String): List<MessageSegment> {
     val segments = mutableListOf<MessageSegment>()
     var currentIndex = 0
     var isInCodeBlock = false
