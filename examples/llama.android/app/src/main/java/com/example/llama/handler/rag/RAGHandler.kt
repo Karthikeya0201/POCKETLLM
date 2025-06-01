@@ -11,6 +11,8 @@ import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.sqrt
+import com.example.llama.MainViewModel.RagDbState
+import com.example.llama.MainViewModel.RagDbState.selectedRagDbIndex
 
 class RAGHandler constructor(private val context: Context) {
     private val embeddingProvider = SentenceEmbeddingProvider.Companion.getInstance(context)
@@ -60,7 +62,8 @@ class RAGHandler constructor(private val context: Context) {
         if (!isInitialized) {
             synchronized(this) {
                 if (!isInitialized) {
-                    dbFile = copyToLocalStorage(context, "newQA.db")
+                    val currentDb = RagDbState.ragDbMap.value[selectedRagDbIndex.value]
+                    dbFile = copyToLocalStorage(context, currentDb.toString())
                     Log.d(tag, "Initialized with dbFile at: ${dbFile?.absolutePath}")
                     isInitialized = true
                 }

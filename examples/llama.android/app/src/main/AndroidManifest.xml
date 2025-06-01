@@ -15,7 +15,7 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.SEND_SMS"/>
+    <uses-permission android:name="android.permission.SEND_SMS" />
 
     <!-- 📞 Call-related permissions -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
@@ -26,6 +26,10 @@
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_SYNC_SETTINGS" />
+
+    <!-- ⏰ Alarm-related permissions (for Android 12+ exact alarms) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <application
         android:allowBackup="true"
@@ -56,5 +60,4 @@
             android:windowSoftInputMode="adjustResize" />
 
     </application>
-
 </manifest>
