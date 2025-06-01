@@ -407,7 +407,6 @@ fun ChatHistoryDrawer(
                                 }
                             }
                         }
-                        // Removed clearing of selectionMode, selectedChats, and selectedAction from here
                     }) {
                         Icon(Icons.Filled.Check, contentDescription = "Confirm Action", tint = MaterialTheme.colorScheme.primary)
                     }
@@ -589,7 +588,6 @@ fun ChatHistoryDrawer(
     }
 }
 
-
 fun parseMessageSegmentspdfDisplay(message: String): List<MessageSegment> {
     Log.d("ChatHistoryDrawer", "Parsing message segments for message: ${message.take(50)}...")
     val segments = mutableListOf<MessageSegment>()
@@ -660,7 +658,7 @@ suspend fun generateChatPdf(
             val contentWidth = pageInfo.pageWidth - 2 * borderMargin
             val contentHeight = pageInfo.pageHeight - 2 * borderMargin
             val maxBubbleWidth = 350f
-            val bubblePadding = 15f
+            val bubblePadding = 10f
             val bubbleRadius = 15f
             val timestampHeight = 25f
             val messageSpacing = 20f
@@ -897,7 +895,6 @@ suspend fun generateChatPdf(
                 return codeRect.bottom + 5f
             }
 
-            // Helper function to split text segments
             fun splitTextSegment(
                 textSegment: MessageSegment.TextSegment,
                 availableHeight: Float,
@@ -907,7 +904,7 @@ suspend fun generateChatPdf(
                 val fittingSegments = mutableListOf<MessageSegment.TextSegment>()
                 var currentText = ""
                 var usedHeight = if (includeTimestamp) timestampHeight + 8f else 8f
-                usedHeight += 2 * bubblePadding + 10f // bubble padding
+                usedHeight += 2 * bubblePadding + 10f
 
                 for (word in words) {
                     val testText = if (currentText.isEmpty()) word else "$currentText $word"
@@ -916,24 +913,84 @@ suspend fun generateChatPdf(
                     if (usedHeight + textHeight + 10f <= availableHeight) {
                         currentText = testText
                     } else {
-                        // Current text fits, add it as a segment
                         if (currentText.isNotEmpty()) {
                             fittingSegments.add(MessageSegment.TextSegment(currentText))
                         }
-                        // Return the fitting segments and remaining text
                         val remainingWords = words.subList(words.indexOf(word), words.size)
                         return Pair(fittingSegments, remainingWords.joinToString(" "))
                     }
                 }
 
-                // All text fits
                 if (currentText.isNotEmpty()) {
                     fittingSegments.add(MessageSegment.TextSegment(currentText))
                 }
                 return Pair(fittingSegments, "")
             }
 
-            // Extract the actual bubble drawing logic to a separate function
+            fun splitCodeSegment(
+                codeSegment: MessageSegment.CodeSegment,
+                availableHeight: Float,
+                includeTimestamp: Boolean
+            ): Pair<List<MessageSegment.CodeSegment>, String> {
+                val codeTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    textSize = 9f
+                    typeface = Typeface.MONOSPACE
+                    color = Color.BLACK
+                }
+                val languageHeight = if (codeSegment.language != null) 25f else 0f
+                val separatorHeight = if (codeSegment.language != null) 8f else 0f
+                val lineHeight = codeTextPaint.getFontSpacing() * 1.2f
+                val maxCodeWidth = maxBubbleWidth - 2 * bubblePadding - 20f
+                var usedHeight = if (includeTimestamp) timestampHeight + 8f else 8f
+                usedHeight += languageHeight + separatorHeight + 2 * bubblePadding + 10f
+
+                val codeLines = codeSegment.code.lines()
+                val wrappedLines = mutableListOf<String>()
+                codeLines.forEach { line ->
+                    if (line.isEmpty()) {
+                        wrappedLines.add("")
+                    } else if (codeTextPaint.measureText(line) <= maxCodeWidth) {
+                        wrappedLines.add(line)
+                    } else {
+                        var remainingLine = line
+                        while (remainingLine.isNotEmpty()) {
+                            var breakPoint = remainingLine.length
+                            for (i in remainingLine.length - 1 downTo 1) {
+                                val substring = remainingLine.substring(0, i)
+                                if (codeTextPaint.measureText(substring) <= maxCodeWidth) {
+                                    breakPoint = i
+                                    break
+                                }
+                            }
+                            if (breakPoint == remainingLine.length && remainingLine.length > 1) {
+                                breakPoint = maxOf(1, (maxCodeWidth / codeTextPaint.measureText("M")).toInt())
+                            }
+                            wrappedLines.add(remainingLine.substring(0, breakPoint))
+                            remainingLine = remainingLine.substring(breakPoint)
+                        }
+                    }
+                }
+
+                val fittingLines = mutableListOf<String>()
+                var lineCount = 0
+                for (line in wrappedLines) {
+                    val lineHeightToAdd = if (line.isEmpty()) lineHeight else lineHeight
+                    if (usedHeight + lineHeightToAdd <= availableHeight) {
+                        fittingLines.add(line)
+                        usedHeight += lineHeightToAdd
+                        lineCount++
+                    } else {
+                        break
+                    }
+                }
+
+                val remainingLines = wrappedLines.subList(lineCount, wrappedLines.size)
+                return Pair(
+                    listOf(MessageSegment.CodeSegment(codeSegment.language, fittingLines.joinToString("\n"))),
+                    remainingLines.joinToString("\n")
+                )
+            }
+
             fun drawSingleBubble(
                 segments: List<MessageSegment>,
                 isUserMessage: Boolean,
@@ -957,7 +1014,7 @@ suspend fun generateChatPdf(
                     }
                 }
 
-                val totalBubbleHeight = totalContentHeight + 2 * bubblePadding + 10f
+                val totalBubbleHeight = totalContentHeight + 1 * bubblePadding
                 Log.v("ChatHistoryDrawer", "Drawing single bubble with height: $totalBubbleHeight")
 
                 val bubbleLeft = if (isUserMessage) borderMargin + contentWidth - maxBubbleWidth - 20f else borderMargin + 20f
@@ -966,12 +1023,10 @@ suspend fun generateChatPdf(
                 val bubbleBottom = yPosition + totalBubbleHeight
                 val bubbleRect = RectF(bubbleLeft, bubbleTop, bubbleRight, bubbleBottom)
 
-                // Draw bubble background
                 paint.color = if (isUserMessage) Color.parseColor("#E8F5E8") else Color.parseColor("#F0F0FF")
                 paint.style = Paint.Style.FILL
                 canvas.drawRoundRect(bubbleRect, bubbleRadius, bubbleRadius, paint)
 
-                // Draw tail only for first bubble of a message
                 if (timestamp.isNotEmpty()) {
                     val tailPath = Path()
                     if (isUserMessage) {
@@ -987,7 +1042,6 @@ suspend fun generateChatPdf(
                     canvas.drawPath(tailPath, paint)
                 }
 
-                // Draw timestamp if present
                 var currentY = bubbleRect.top + bubblePadding
                 if (timestamp.isNotEmpty()) {
                     val timestampPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1001,7 +1055,6 @@ suspend fun generateChatPdf(
                     currentY += 8f
                 }
 
-                // Draw content segments
                 segments.forEach { segment ->
                     when (segment) {
                         is MessageSegment.TextSegment -> {
@@ -1019,7 +1072,6 @@ suspend fun generateChatPdf(
                 Log.v("ChatHistoryDrawer", "Single bubble drawn, updated Y position: $yPosition")
             }
 
-            // Replace the drawMessageBubble function with this improved version
             fun drawMessageBubble(
                 segments: List<MessageSegment>,
                 isUserMessage: Boolean,
@@ -1028,88 +1080,83 @@ suspend fun generateChatPdf(
             ) {
                 Log.d("ChatHistoryDrawer", "Drawing message bubble for message $messageIndex (isUser: $isUserMessage, timestamp: $timestamp)")
 
-                // Calculate minimum space needed for timestamp and basic bubble structure
-                val minBubbleHeight = timestampHeight + 2 * bubblePadding + 50f // minimum space for a bubble
+                val minBubbleHeight = timestampHeight + 2 * bubblePadding + 50f
                 val availableHeight = pageInfo.pageHeight - borderMargin - 50f - yPosition
 
-                // If we don't have minimum space, create new page
                 if (availableHeight < minBubbleHeight) {
                     Log.d("ChatHistoryDrawer", "Not enough space for minimum bubble, creating new page")
                     canvas = createNewPage()
                 }
 
-                // Process segments and split if necessary
                 var currentSegmentIndex = 0
                 var isFirstBubbleForMessage = true
+                val allSegments = segments.toMutableList()
 
-                while (currentSegmentIndex < segments.size) {
-                    val remainingSegments = segments.subList(currentSegmentIndex, segments.size)
+                while (currentSegmentIndex < allSegments.size) {
+                    val remainingSegments = allSegments.subList(currentSegmentIndex, allSegments.size)
                     val currentAvailableHeight = pageInfo.pageHeight - borderMargin - 50f - yPosition
 
-                    // Calculate how many segments can fit in current page
                     var segmentsToInclude = mutableListOf<MessageSegment>()
-                    var totalContentHeight = timestampHeight + 8f // Only include timestamp in first bubble
-                    if (!isFirstBubbleForMessage) {
-                        totalContentHeight = 8f // No timestamp for continuation bubbles
-                    }
+                    var totalContentHeight = if (isFirstBubbleForMessage) timestampHeight + 8f else 8f
+                    var nextSegmentIndex = currentSegmentIndex
 
                     for (i in remainingSegments.indices) {
                         val segment = remainingSegments[i]
                         val segmentHeight = when (segment) {
-                            is MessageSegment.TextSegment -> {
-                                calculateTextHeight(segment.content, textPaint, maxBubbleWidth - 2 * bubblePadding) + 10f
-                            }
-                            is MessageSegment.CodeSegment -> {
-                                calculateCodeHeight(segment.code, segment.language) + 10f
-                            }
+                            is MessageSegment.TextSegment -> calculateTextHeight(segment.content, textPaint, maxBubbleWidth - 2 * bubblePadding) + 10f
+                            is MessageSegment.CodeSegment -> calculateCodeHeight(segment.code, segment.language) + 10f
                         }
 
                         val bubbleHeightWithThisSegment = totalContentHeight + segmentHeight + 2 * bubblePadding + 10f
 
                         if (bubbleHeightWithThisSegment <= currentAvailableHeight || segmentsToInclude.isEmpty()) {
-                            // Include this segment (always include at least one segment)
                             segmentsToInclude.add(segment)
                             totalContentHeight += segmentHeight
-                            currentSegmentIndex++
+                            nextSegmentIndex = currentSegmentIndex + i + 1
                         } else {
-                            // This segment won't fit, break here
                             break
                         }
                     }
 
-                    // If no segments fit and we have a very long single segment, we need to split it
                     if (segmentsToInclude.isEmpty() && remainingSegments.isNotEmpty()) {
                         val segment = remainingSegments[0]
                         when (segment) {
                             is MessageSegment.TextSegment -> {
-                                // Split long text content
-                                val splitSegments = splitTextSegment(segment, currentAvailableHeight, isFirstBubbleForMessage)
-                                segmentsToInclude.addAll(splitSegments.first)
-                                // Replace the original segment with remaining parts
-                                val remainingText = splitSegments.second
+                                val splitResult = splitTextSegment(segment, currentAvailableHeight, isFirstBubbleForMessage)
+                                segmentsToInclude.addAll(splitResult.first)
+                                val remainingText = splitResult.second
                                 if (remainingText.isNotEmpty()) {
-                                    segments.toMutableList().let { mutableSegments ->
-                                        mutableSegments[currentSegmentIndex] = MessageSegment.TextSegment(remainingText)
-                                    }
+                                    allSegments[currentSegmentIndex] = MessageSegment.TextSegment(remainingText)
+                                    nextSegmentIndex = currentSegmentIndex
                                 } else {
-                                    currentSegmentIndex++
+                                    nextSegmentIndex = currentSegmentIndex + 1
                                 }
                             }
                             is MessageSegment.CodeSegment -> {
-                                // For code segments, include the whole block but it might overflow
-                                segmentsToInclude.add(segment)
-                                currentSegmentIndex++
+                                val splitResult = splitCodeSegment(segment, currentAvailableHeight, isFirstBubbleForMessage)
+                                segmentsToInclude.addAll(splitResult.first)
+                                val remainingCode = splitResult.second
+                                if (remainingCode.isNotEmpty()) {
+                                    allSegments[currentSegmentIndex] = MessageSegment.CodeSegment(segment.language, remainingCode)
+                                    nextSegmentIndex = currentSegmentIndex
+                                } else {
+                                    nextSegmentIndex = currentSegmentIndex + 1
+                                }
                             }
                         }
                     }
 
-                    // Draw the bubble with selected segments
-                    drawSingleBubble(segmentsToInclude, isUserMessage, if (isFirstBubbleForMessage) timestamp else "", messageIndex)
+                    drawSingleBubble(
+                        segmentsToInclude,
+                        isUserMessage,
+                        if (isFirstBubbleForMessage) timestamp else "",
+                        messageIndex
+                    )
 
                     isFirstBubbleForMessage = false
+                    currentSegmentIndex = nextSegmentIndex
 
-                    // If there are more segments, create new page for continuation
-                    if (currentSegmentIndex < segments.size) {
+                    if (currentSegmentIndex < allSegments.size) {
                         canvas = createNewPage()
                     }
                 }
@@ -1168,7 +1215,7 @@ suspend fun generateChatPdf(
                 }
             } ?: run {
                 Log.e("ChatHistoryDrawer", "Failed to create file URI for chat $chatId")
-                onPermissionDenied
+                onPermissionDenied(null)
                 document.close()
                 Log.d("ChatHistoryDrawer", "PDF document closed after URI failure for chat $chatId")
             }
